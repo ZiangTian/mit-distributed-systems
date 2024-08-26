@@ -9,8 +9,9 @@ import "net/http"
 
 type Coordinator struct {
 	// Your definitions here.
-	Done bool;
-	
+	files []string
+	nReduce int
+	doneA []bool
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -23,6 +24,11 @@ type Coordinator struct {
 func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	reply.Y = args.X + 1
 	return nil
+}
+
+// assign a task to worker
+func (c *Coordinator) GetTask() error {
+
 }
 
 
@@ -64,7 +70,11 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 
 	// Your code here.
+	c.files = files
+	c.doneA = make([]bool, len(files))
+	c.nReduce = nReduce
 
+	
 
 	c.server()
 	return &c

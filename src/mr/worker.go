@@ -30,6 +30,8 @@ func ihash(key string) int {
 //
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
+	// worker takes two arguments: mapf and reducef
+
 
 	// Your worker implementation here.
 
@@ -64,6 +66,20 @@ func CallExample() {
 		fmt.Printf("reply.Y %v\n", reply.Y)
 	} else {
 		fmt.Printf("call failed!\n")
+	}
+}
+
+// Call for tasks from coordinator
+func Call4Task() (bool, TaskArgs) {
+	args := TaskArgs{}
+	reply := TaskReply{}
+
+	ok := call("Coordinator.GetTask", &args, &reply)
+	if ok {
+		reutrn true, reply
+	} else {
+		// fmt.Printf("call failed!\n")
+		return false, nil
 	}
 }
 
