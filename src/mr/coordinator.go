@@ -9,7 +9,8 @@ import "net/http"
 
 type Coordinator struct {
 	// Your definitions here.
-
+	Done bool;
+	
 }
 
 // Your code here -- RPC handlers for the worker to call.

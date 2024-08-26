@@ -17,25 +17,25 @@ import "sort"
 // for sorting by key.
 type ByKey []mr.KeyValue
 
-// for sorting by key.
-func (a ByKey) Len() int           { return len(a) }
+// for sorting by key. The sort.Sort function works on any type that implements the sort.Interface, requiring the three methods below.
+func (a ByKey) Len() int           { return len(a) } // a is the slice of KeyValue pairs
 func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 func main() {
-	if len(os.Args) < 3 {
+	if len(os.Args) < 3 { // os.Args[0] is the name of the executable
 		fmt.Fprintf(os.Stderr, "Usage: mrsequential xxx.so inputfiles...\n")
 		os.Exit(1)
 	}
 
-	mapf, reducef := loadPlugin(os.Args[1])
+	mapf, reducef := loadPlugin(os.Args[1]) // the first argument is the plugin file
 
 	//
 	// read each input file,
 	// pass it to Map,
 	// accumulate the intermediate Map output.
 	//
-	intermediate := []mr.KeyValue{}
+	intermediate := []mr.KeyValue{} // empty slice of KeyValue pairs
 	for _, filename := range os.Args[2:] {
 		file, err := os.Open(filename)
 		if err != nil {
