@@ -28,21 +28,47 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 	// worker takes two arguments: mapf and reducef
 
+	// should change it to periodically call for tasks from coordinator?
+
 	// Your worker implementation here.
 	success, AssignmemtReply := Call4Task()
 	if !success {
 		return
 	}
-	file, err := os.Open(AssignmemtReply.filename)
-	if err != nil {
-		log.Fatalf("cannot open %v", AssignmemtReply.filename)
+
+	if AssignmemtReply.taskType { // map
+		for _, filename := range AssignmemtReply.filenames {
+			file, err := os.Open(filename)
+			if err != nil {
+				log.Fatalf("cannot open %v", filename)
+			}
+			content, err := ioutil.ReadAll(file)
+			if err != nil {
+				log.Fatalf("cannot read %v", filename)
+			}
+			file.Close()
+			kva := mapf(filename, string(content))
+
+			// output to intermediate file
+			y := ihash(filename) % AssignmemtReply.nReduce
+
+			// lock the file TODO
+			intermediateFileName := fmt.Sprintf("mr-%v-%v", AssignmemtReply.mapTaskId, y)
+			intermediateFile, err := os.Create(intermediateFileName)
+			if err != nil {
+				log.Fatalf("cannot create %v", intermediateFileName)
+			}
+			// for _, kv := range kva {
+			// 	fmt.Fprintf(intermediateFile, "%v %v\n", kv.Key, kv.Value)
+			// }
+			// write key-value pairs in json format using encoding/json
+			json.NewEncoder(intermediateFile).Encode(kva)
+			intermediateFile.Close()
+
+	} else { // reduce task
+
+
 	}
-	content, err := ioutil.ReadAll(file)
-	if err != nil {
-		log.Fatalf("cannot read %v", AssignmemtReply.filename)
-	}
-	file.Close()
-	kva := mapf(AssignmemtReply.filename, string(content))
 
 	// send the result to the coordinator
 

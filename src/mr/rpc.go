@@ -27,14 +27,24 @@ type ExampleReply struct {
 // Add your RPC definitions here.
 
 type AssignmemtReply struct {
-	filename string
-	taskId   int
+	taskType  bool // true for map, false for reduce
+	filenames []string
+	mapTaskId int
+	nReduce   int
 }
 
 type TaskArgs struct {
-	kva    []KeyValue // result after map
-	taskId int
+	taskType bool
+
+	// if is a map task, would need an array of filenames
+	// if is a reduce task, would need an array of intermediate file names, actually indicated by the mr-X-Y
+	filenames []string
 }
+
+// type MapResult struct { // we dont need a map struct for the results because we just output the file as mr-X-Y
+// 	taskId int
+// 	kva   []KeyValue
+// }
 
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.
