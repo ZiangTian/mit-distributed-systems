@@ -35,14 +35,33 @@ func bitCheck(states []int) (int, int) {
 	return bitAnd, bitOr
 }
 
-func (c *Coordinator) isAllTasksDone(taskType bool) bool {
-	if taskType { // true for reduce task
-		bitAnd, bitOr := bitCheck(c.reduceTaskState)
-		return (bitAnd == bitOr) && (bitAnd == 2)
-	} else {
-		bitAnd, bitOr := bitCheck(c.mapTaskState)
-		return (bitAnd == bitOr) && (bitAnd == 2)
+func (c *Coordinator) isAllMapTasksDone() bool {
+	allMapTasksDone := true
+	for _, state := range c.mapTaskState {
+		if state != 2 {
+			allMapTasksDone = false
+			break
+		}
 	}
+	return allMapTasksDone
+}
+
+func (c *Coordinator) isAllReduceTasksDone() bool {
+	allReduceTasksDone := true
+	for _, state := range c.reduceTaskState {
+		if state != 2 {
+			allReduceTasksDone = false
+			break
+		}
+	}
+	return allReduceTasksDone
+}
+
+func printStates(states []int) {
+	for i, state := range states {
+		fmt.Printf("  Task %d: %d  ;", i, state)
+	}
+	fmt.Println()
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -60,67 +79,82 @@ func (c *Coordinator) AssignTask(args *ExampleArgs, reply *AssignmemtReply) erro
 	// check if all map tasks are done
 	// if all map tasks are done, assign reduce tasks
 	// if all reduce tasks are done, return false
-	fmt.Print("Assigning Task\n")
 
-	allMapTasksDone := true
-	for _, state := range c.mapTaskState {
-		if state != 1 {
-			allMapTasksDone = false
-			break
-		}
-	}
+	allMapTasksDone := c.isAllMapTasksDone()
+	printStates(c.mapTaskState)
+	printStates(c.reduceTaskState)
+
+	print("All map tasks done: ", allMapTasksDone, "\n")
 
 	if !allMapTasksDone { // try to assign map tasks
 		// find the first idle map task
+		fmt.Println("Assigning map tasks")
 		found := false
 		for i, state := range c.mapTaskState {
 			if state == 0 {
-				reply.taskType = 0
-				reply.filename = c.filenames[i]
-				fmt.Printf("Assigned map task %d, filename %s \n", reply.mapTaskId, reply.filename)
-				reply.fileDir = "./"
-				reply.mapTaskId = i
-				reply.nReduce = c.nReduce
+				reply.TaskType = 0
+				reply.Filename = c.filenames[i]
+				reply.FileDir = "./"
+				reply.MapTaskId = i
+				reply.NReduce = c.nReduce
 				c.mapTaskState[i] = 1
 
 				reply.Y = -1
 
+				fmt.Printf("Assigned map task %d, filename %s \n", reply.MapTaskId, reply.Filename)
+
 				found = true
 				break
 			}
 		}
-		if !found {
-			reply.taskType = 2
+		if !found { // all map tasks are at least in progress
+			reply.TaskType = 2
 		}
-
 	} else { // assign reduce tasks
 		// find the first idle reduce task
+		fmt.Println("Assigning reduce tasks")
+
+		if c.isAllReduceTasksDone() {
+			fmt.Println("All reduce tasks are done")
+			reply.TaskType = 3
+			return nil
+		}
+
 		found := false
 		for i, state := range c.reduceTaskState {
+			fmt.Println(i, state)
 			if state == 0 {
-				reply.taskType = 1
-				reply.fileDir = "./"
+				reply.TaskType = 1
+				reply.FileDir = "./"
 				reply.Y = i
-				reply.nReduce = c.nReduce
+				reply.NReduce = c.nReduce
 				c.reduceTaskState[i] = 1
+
+				reply.MapTaskId = -1
+				fmt.Printf("Assigned reply task %d, filename %s \n", reply.Y, reply.Filename)
 
 				found = true
 				break
 			}
 		}
 		if !found {
-			reply.taskType = 2
+			reply.TaskType = 2
+			fmt.Println("reduce tasks not found")
+		} else {
+			fmt.Printf("Assigning reduce task %d\n", reply.Y)
 		}
-		fmt.Printf("Assigning reduce task %d\n", reply.Y)
+
 	}
 	return nil
 }
 
-func (c *Coordinator) registerDone(args *TaskArgs, reply *ExampleReply) error {
-	if args.taskType { // map task
-		c.mapTaskState[args.taskId] = 2
+func (c *Coordinator) RegisterDone(args *TaskArgs, reply *ExampleReply) error {
+	if args.TaskType { // map task
+		fmt.Println("Mark map tasks as done")
+		c.mapTaskState[args.TaskId] = 2
 	} else { // reduce task
-		c.reduceTaskState[args.taskId] = 2
+		fmt.Println("GUARD!!! trying to check reduce tasks")
+		c.reduceTaskState[args.TaskId] = 2
 	}
 	return nil
 }
@@ -144,9 +178,9 @@ func (c *Coordinator) server() {
 func (c *Coordinator) Done() bool {
 
 	// Your code here.
-	ret := c.isAllTasksDone(true) // check all reduce tasks
+	ret := c.isAllReduceTasksDone() // check all reduce tasks
 
-	if ret && !c.isAllTasksDone(false) {
+	if ret && !c.isAllMapTasksDone() {
 		panic("All reduce tasks are done but not all map tasks are done")
 	}
 	// assert map tasks are all finished if ret is true

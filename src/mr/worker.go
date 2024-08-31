@@ -45,10 +45,10 @@ func Worker(mapf func(string, string) []KeyValue,
 			break
 		}
 		fmt.Printf("got task %v\n", AssignmemtReply)
-		if AssignmemtReply.taskType == 0 { // map
+		if AssignmemtReply.TaskType == 0 { // map
 			// read from file
-			fmt.Printf("got file %s \n", AssignmemtReply.filename)
-			filename := AssignmemtReply.fileDir + AssignmemtReply.filename
+			fmt.Printf("got file %s \n", AssignmemtReply.Filename)
+			filename := AssignmemtReply.FileDir + AssignmemtReply.Filename
 			file, err := os.Open(filename)
 			if err != nil {
 				log.Fatalf("cannot open %v", filename)
@@ -61,10 +61,10 @@ func Worker(mapf func(string, string) []KeyValue,
 			kva := mapf(filename, string(content))
 
 			// output to intermediate file
-			y := ihash(filename) % AssignmemtReply.nReduce
+			y := ihash(filename) % AssignmemtReply.NReduce
 
 			// lock the file TODO
-			intermediateFileName := fmt.Sprintf("mr-%v-%v", AssignmemtReply.mapTaskId, y)
+			intermediateFileName := fmt.Sprintf("mr-%v-%v", AssignmemtReply.MapTaskId, y)
 
 			// Create the intermediate file
 			intermediateFile, err := os.Create(intermediateFileName)
@@ -85,15 +85,15 @@ func Worker(mapf func(string, string) []KeyValue,
 			intermediateFile.Close()
 
 			// notify coordinator that the task is done
-			NotifyDone(false, AssignmemtReply.mapTaskId) // false for map
+			NotifyDone(true, AssignmemtReply.MapTaskId) // false for map
 
-		} else if AssignmemtReply.taskType == 1 { // reduce task
+		} else if AssignmemtReply.TaskType == 1 { // reduce task
 			// read from intermediate files
 			intermediate := []KeyValue{}
 			y := AssignmemtReply.Y
 			// go to the file dir and read all the file names of mr-*-Y
 			// get the path: AssignmemtReply.fileDir+"/mr-*-Y"
-			regexFileName := AssignmemtReply.fileDir + fmt.Sprintf("mr-*-%v", y)
+			regexFileName := AssignmemtReply.FileDir + fmt.Sprintf("mr-*-%v", y)
 			matches, err := filepath.Glob(regexFileName)
 			if err != nil {
 				log.Fatalf("cannot read %v", regexFileName)
@@ -142,12 +142,15 @@ func Worker(mapf func(string, string) []KeyValue,
 			ofile.Close()
 
 			// notify coordinator that the task is done
-			NotifyDone(true, AssignmemtReply.Y) // true for reduce
-		} else { // cannot get task now
+			NotifyDone(false, AssignmemtReply.Y) // true for reduce
+		} else if AssignmemtReply.TaskType == 2 { // cannot get task now
 			// sleep for 0.1 second
-			time.Sleep(2000 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
+		} else {
+			// please exit
+			break
 		}
-		time.Sleep(1000 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 
 	}
 	// uncomment to send the Example RPC to the coordinator.
@@ -188,7 +191,7 @@ func Call4Task() (bool, AssignmemtReply) {
 
 	ok := call("Coordinator.AssignTask", &args, &reply)
 	if ok {
-		fmt.Printf("got task %s\n", reply.filename)
+		fmt.Printf("got task %s\n", reply.Filename)
 		return true, reply
 	} else {
 		// fmt.Printf("call failed!\n")
@@ -196,15 +199,15 @@ func Call4Task() (bool, AssignmemtReply) {
 	}
 }
 
-func NotifyDone(taskType bool, taskId int) bool {
+func NotifyDone(TaskType bool, TaskId int) bool {
 	// TODO
 	args := TaskArgs{}
 	reply := ExampleReply{}
 
-	args.taskType = taskType
-	args.taskId = taskId
+	args.TaskType = TaskType
+	args.TaskId = TaskId
 
-	ok := call("Coordinator.registerDone", &args, &reply)
+	ok := call("Coordinator.RegisterDone", &args, &reply)
 	if ok {
 		return true
 	} else {
