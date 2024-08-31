@@ -27,18 +27,18 @@ type ExampleReply struct {
 // Add your RPC definitions here.
 
 type AssignmemtReply struct {
-	taskType  bool // true for map, false for reduce
-	filenames []string
-	mapTaskId int
-	nReduce   int
+	taskType  int    // 0 for map, 1 for reduce, 2 for not assignable now
+	filename  string // filenames for map tasks
+	Y         int    // reduce task id
+	fileDir   string // reduce task directory
+	mapTaskId int    // map task id
+	nReduce   int    // number of reduce tasks
 }
 
 type TaskArgs struct {
 	taskType bool
-
-	// if is a map task, would need an array of filenames
-	// if is a reduce task, would need an array of intermediate file names, actually indicated by the mr-X-Y
-	filenames []string
+	taskId   int // for map task, it is the index of the file in filenames;
+	// for reduce task, it is Y
 }
 
 // type MapResult struct { // we dont need a map struct for the results because we just output the file as mr-X-Y

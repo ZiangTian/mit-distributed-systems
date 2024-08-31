@@ -1,12 +1,16 @@
 package mr
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"io/ioutil"
 	"log"
 	"net/rpc"
 	"os"
+	"path/filepath"
+	"sort"
+	"time"
 )
 
 // Map functions return a slice of KeyValue.
@@ -14,6 +18,12 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
+
+type ByKey []KeyValue
+
+func (a ByKey) Len() int           { return len(a) } // a is the slice of KeyValue pairs
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
@@ -27,17 +37,18 @@ func ihash(key string) int {
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 	// worker takes two arguments: mapf and reducef
-
-	// should change it to periodically call for tasks from coordinator?
-
-	// Your worker implementation here.
-	success, AssignmemtReply := Call4Task()
-	if !success {
-		return
-	}
-
-	if AssignmemtReply.taskType { // map
-		for _, filename := range AssignmemtReply.filenames {
+	// CallExample()
+	// periodically ask for tasks from coordinator
+	for {
+		success, AssignmemtReply := Call4Task()
+		if !success {
+			break
+		}
+		fmt.Printf("got task %v\n", AssignmemtReply)
+		if AssignmemtReply.taskType == 0 { // map
+			// read from file
+			fmt.Printf("got file %s \n", AssignmemtReply.filename)
+			filename := AssignmemtReply.fileDir + AssignmemtReply.filename
 			file, err := os.Open(filename)
 			if err != nil {
 				log.Fatalf("cannot open %v", filename)
@@ -54,6 +65,8 @@ func Worker(mapf func(string, string) []KeyValue,
 
 			// lock the file TODO
 			intermediateFileName := fmt.Sprintf("mr-%v-%v", AssignmemtReply.mapTaskId, y)
+
+			// Create the intermediate file
 			intermediateFile, err := os.Create(intermediateFileName)
 			if err != nil {
 				log.Fatalf("cannot create %v", intermediateFileName)
@@ -62,19 +75,83 @@ func Worker(mapf func(string, string) []KeyValue,
 			// 	fmt.Fprintf(intermediateFile, "%v %v\n", kv.Key, kv.Value)
 			// }
 			// write key-value pairs in json format using encoding/json
-			json.NewEncoder(intermediateFile).Encode(kva)
+			enc := json.NewEncoder(intermediateFile)
+			for _, kv := range kva {
+				if err := enc.Encode(&kv); err != nil {
+					log.Fatalf("cannot encode %v", kv)
+					break
+				}
+			}
 			intermediateFile.Close()
 
-	} else { // reduce task
+			// notify coordinator that the task is done
+			NotifyDone(false, AssignmemtReply.mapTaskId) // false for map
 
+		} else if AssignmemtReply.taskType == 1 { // reduce task
+			// read from intermediate files
+			intermediate := []KeyValue{}
+			y := AssignmemtReply.Y
+			// go to the file dir and read all the file names of mr-*-Y
+			// get the path: AssignmemtReply.fileDir+"/mr-*-Y"
+			regexFileName := AssignmemtReply.fileDir + fmt.Sprintf("mr-*-%v", y)
+			matches, err := filepath.Glob(regexFileName)
+			if err != nil {
+				log.Fatalf("cannot read %v", regexFileName)
+			}
+			for _, filename := range matches {
+				file, err := os.Open(filename)
+				if err != nil {
+					log.Fatalf("cannot open %v", filename)
+				}
+				// read key-value pairs in json format using encoding/json
+				dec := json.NewDecoder(file)
+				for {
+					var kv KeyValue
+					if err := dec.Decode(&kv); err != nil {
+						break
+					}
+					intermediate = append(intermediate, kv)
+				}
+				file.Close()
+			}
+			// sort the intermediate key-value pairs
+			sort.Sort(ByKey(intermediate))
+
+			oname := fmt.Sprintf("mr-out-%v", y)
+			ofile, _ := os.Create(oname)
+
+			// call Reduce on each distinct key in intermediate[],
+			i := 0
+			for i < len(intermediate) {
+				j := i + 1
+				for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
+					j++
+				}
+				values := []string{}
+				for k := i; k < j; k++ {
+					values = append(values, intermediate[k].Value)
+				}
+				output := reducef(intermediate[i].Key, values)
+
+				// this is the correct format for each line of Reduce output.
+				fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
+
+				i = j
+			}
+
+			ofile.Close()
+
+			// notify coordinator that the task is done
+			NotifyDone(true, AssignmemtReply.Y) // true for reduce
+		} else { // cannot get task now
+			// sleep for 0.1 second
+			time.Sleep(2000 * time.Millisecond)
+		}
+		time.Sleep(1000 * time.Millisecond)
 
 	}
-
-	// send the result to the coordinator
-
 	// uncomment to send the Example RPC to the coordinator.
 	// CallExample()
-
 }
 
 // example function to show how to make an RPC call to the coordinator.
@@ -111,6 +188,7 @@ func Call4Task() (bool, AssignmemtReply) {
 
 	ok := call("Coordinator.AssignTask", &args, &reply)
 	if ok {
+		fmt.Printf("got task %s\n", reply.filename)
 		return true, reply
 	} else {
 		// fmt.Printf("call failed!\n")
@@ -118,18 +196,19 @@ func Call4Task() (bool, AssignmemtReply) {
 	}
 }
 
-func SubmitTask(kva []KeyValue, taskId int) bool {
+func NotifyDone(taskType bool, taskId int) bool {
+	// TODO
 	args := TaskArgs{}
-	args.kva = kva
-	args.taskId = taskId
 	reply := ExampleReply{}
 
-	ok := call("Coordinator.ReceiveTask", &args, &reply)
+	args.taskType = taskType
+	args.taskId = taskId
+
+	ok := call("Coordinator.registerDone", &args, &reply)
 	if ok {
-		// fmt.Printf("reply.Y %v\n", reply.Y)
 		return true
 	} else {
-		// fmt.Printf("call failed!\n")
+		fmt.Printf("call failed!\n")
 		return false
 	}
 }
