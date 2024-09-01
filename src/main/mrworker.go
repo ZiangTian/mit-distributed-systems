@@ -26,7 +26,7 @@ func main() {
 	}
 
 	mapf, reducef := loadPlugin(os.Args[1])
-	fmt.Print("Plugin loaded\n")
+	// fmt.Print("Plugin loaded\n")
 	mr.Worker(mapf, reducef)
 }
 

@@ -33,6 +33,36 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
+func saveIntermediateFile(kva []KeyValue, nReduce int, taskId int) {
+	var fps []*os.File
+	for i := 0; i < nReduce; i++ {
+		temp, _ := os.CreateTemp("", "mr-tmp-")
+		fps = append(fps, temp)
+	}
+	// scatter the intermediate key-value pairs to the reduce tasks
+	// with the same key going to the same reduce task
+
+	encoders := make([]*json.Encoder, nReduce)
+	for i := 0; i < nReduce; i++ {
+		encoders[i] = json.NewEncoder(fps[i])
+	}
+	for _, keyValue := range kva {
+		encoder := encoders[ihash(keyValue.Key)%nReduce]
+		if err := encoder.Encode(&keyValue); err != nil {
+			log.Fatalf("cannot encode %v", keyValue)
+		}
+	}
+
+	for index, fp := range fps {
+		_ = fp.Close()
+		newFileName := fmt.Sprintf("mr-%v-%v", taskId, index)
+		if err := os.Rename(fp.Name(), fmt.Sprintf("mr-%v-%v", taskId, index)); err != nil {
+			log.Fatalf("cannot rename %s to %s", fp.Name(), newFileName)
+		}
+	}
+
+}
+
 // main/mrworker.go calls this function.
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
@@ -44,7 +74,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		if !success {
 			break
 		}
-		fmt.Printf("got task %v\n", AssignmemtReply)
+		// fmt.Printf("got task %v\n", AssignmemtReply)
 		if AssignmemtReply.TaskType == 0 { // map
 			// read from file
 			fmt.Printf("got file %s \n", AssignmemtReply.Filename)
@@ -60,31 +90,8 @@ func Worker(mapf func(string, string) []KeyValue,
 			file.Close()
 			kva := mapf(filename, string(content))
 
-			// output to intermediate file
-			y := ihash(filename) % AssignmemtReply.NReduce
+			saveIntermediateFile(kva, AssignmemtReply.NReduce, AssignmemtReply.MapTaskId)
 
-			// lock the file TODO
-			intermediateFileName := fmt.Sprintf("mr-%v-%v", AssignmemtReply.MapTaskId, y)
-
-			// Create the intermediate file
-			intermediateFile, err := os.Create(intermediateFileName)
-			if err != nil {
-				log.Fatalf("cannot create %v", intermediateFileName)
-			}
-			// for _, kv := range kva {
-			// 	fmt.Fprintf(intermediateFile, "%v %v\n", kv.Key, kv.Value)
-			// }
-			// write key-value pairs in json format using encoding/json
-			enc := json.NewEncoder(intermediateFile)
-			for _, kv := range kva {
-				if err := enc.Encode(&kv); err != nil {
-					log.Fatalf("cannot encode %v", kv)
-					break
-				}
-			}
-			intermediateFile.Close()
-
-			// notify coordinator that the task is done
 			NotifyDone(true, AssignmemtReply.MapTaskId) // false for map
 
 		} else if AssignmemtReply.TaskType == 1 { // reduce task
@@ -191,7 +198,7 @@ func Call4Task() (bool, AssignmemtReply) {
 
 	ok := call("Coordinator.AssignTask", &args, &reply)
 	if ok {
-		fmt.Printf("got task %s\n", reply.Filename)
+		// fmt.Printf("got task %s\n", reply.Filename)
 		return true, reply
 	} else {
 		// fmt.Printf("call failed!\n")
