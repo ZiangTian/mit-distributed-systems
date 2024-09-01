@@ -77,7 +77,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		// fmt.Printf("got task %v\n", AssignmemtReply)
 		if AssignmemtReply.TaskType == 0 { // map
 			// read from file
-			fmt.Printf("got file %s \n", AssignmemtReply.Filename)
+			// fmt.Printf("got file %s \n", AssignmemtReply.Filename)
 			filename := AssignmemtReply.FileDir + AssignmemtReply.Filename
 			file, err := os.Open(filename)
 			if err != nil {

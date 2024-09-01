@@ -9,6 +9,7 @@ package mr
 import (
 	"os"
 	"strconv"
+	"time"
 )
 
 //
@@ -36,9 +37,10 @@ type AssignmemtReply struct {
 }
 
 type TaskArgs struct {
-	TaskType bool
-	TaskId   int // for map task, it is the index of the file in filenames;
+	TaskType bool // true for map, false for reduce
+	TaskId   int  // for map task, it is the index of the file in filenames;
 	// for reduce task, it is Y
+	StartTime time.Time
 }
 
 // type MapResult struct { // we dont need a map struct for the results because we just output the file as mr-X-Y

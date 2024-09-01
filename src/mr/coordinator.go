@@ -1,46 +1,29 @@
 package mr
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"net/rpc"
 	"os"
 	"sync"
+	"time"
 )
 
 type taskState struct {
-	states []int
-	mu     sync.Mutex
+	states    []int // 0: idle, 1: in progress, 2: done
+	startTime []time.Time
+	mu        sync.Mutex
 }
 
 type Coordinator struct {
 	// Your definitions here.
-	nReduce   int
-	filenames []string // all files to be mapped, each as a map task
-	// mapTaskState    []int    // 0: idle, 1: in progress, 2: completed
-	// reduceTaskState []int    // 0: idle, 1: in progress, 2: completed
+	nReduce         int
+	filenames       []string // all files to be mapped, each as a map task
 	mapTaskState    taskState
 	reduceTaskState taskState
 }
-
-// func bitCheck(states []int) (int, int) {
-// 	// use bit manipulation to check if all tasks are completed
-// 	bitAnd := 1
-// 	bitOr := 0
-// 	for _, state := range states {
-// 		bitAnd &= state
-// 		bitOr |= state
-// 	}
-// 	// if is all 01, then bit and is 01, bit or is 01
-// 	// if is all 10, then bit and is 10, bit or is 10
-// 	// if is all 00, then bit and is 00, bit or is 00
-// 	// if is 01 and 10, then bit and is 00, bit or is 11
-// 	// if is 01 and 00, then bit and is 00, bit or is 01
-// 	// if is 01 and 10 and 00, then bit and is 00, bit or is 11
-// 	// if is 00 and 10, then bit and is 00, bit or is 10
-// 	return bitAnd, bitOr
-// }
 
 func (c *Coordinator) isAllMapTasksDone() bool {
 	allMapTasksDone := true
@@ -67,13 +50,6 @@ func (c *Coordinator) isAllReduceTasksDone() bool {
 	c.reduceTaskState.mu.Unlock()
 	return allReduceTasksDone
 }
-
-// func printStates(states []int) {
-// 	for i, state := range states {
-// 		// fmt.Printf("  Task %d: %d  ;", i, state)
-// 	}
-// 	// fmt.Println()
-// }
 
 // Your code here -- RPC handlers for the worker to call.
 
@@ -102,10 +78,11 @@ func (c *Coordinator) AssignTask(args *ExampleArgs, reply *AssignmemtReply) erro
 			if state == 0 {
 				reply.TaskType = 0
 				reply.Filename = c.filenames[i]
-				reply.FileDir = "./"
+				reply.FileDir = ""
 				reply.MapTaskId = i
 				reply.NReduce = c.nReduce
 				c.mapTaskState.states[i] = 1
+				c.mapTaskState.startTime[i] = time.Now()
 
 				reply.Y = -1
 
@@ -137,6 +114,7 @@ func (c *Coordinator) AssignTask(args *ExampleArgs, reply *AssignmemtReply) erro
 				reply.Y = i
 				reply.NReduce = c.nReduce
 				c.reduceTaskState.states[i] = 1
+				c.reduceTaskState.startTime[i] = time.Now()
 
 				reply.MapTaskId = -1
 				// fmt.Printf("Assigned reply task %d, filename %s \n", reply.Y, reply.Filename)
@@ -200,6 +178,21 @@ func (c *Coordinator) Done() bool {
 	return ret
 }
 
+func (s *taskState) checkForFailure() {
+	// check for failure
+	for {
+		time.Sleep(5 * time.Second)
+		s.mu.Lock()
+		for i, state := range s.states {
+			if state == 1 && time.Since(s.startTime[i]) > 10*time.Second {
+				s.states[i] = 0
+				fmt.Printf("Task %d is failed\n", i)
+			}
+		}
+		s.mu.Unlock()
+	}
+}
+
 // create a Coordinator.
 // main/mrcoordinator.go calls this function.
 // nReduce is the number of reduce tasks to use.
@@ -212,9 +205,21 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	// fmt.Println("Files to be mapped: ", files)
 	c.nReduce = nReduce
 	c.mapTaskState.states = make([]int, len(files))
+	c.mapTaskState.startTime = make([]time.Time, len(files)) // each element is time.Time{}
 	c.reduceTaskState.states = make([]int, nReduce)
+	c.reduceTaskState.startTime = make([]time.Time, nReduce)
 	// fmt.Println("Coordinator is created")
 	// fmt.Println("Number of map tasks: ", len(files))
+	go c.mapTaskState.checkForFailure()
 	c.server()
+
+	// stall to check for beginning of reduce tasks
+	for {
+		if c.isAllMapTasksDone() {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+	go c.reduceTaskState.checkForFailure()
 	return &c
 }
