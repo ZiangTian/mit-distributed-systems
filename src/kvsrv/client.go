@@ -3,6 +3,7 @@ package kvsrv
 import (
 	"crypto/rand"
 	"math/big"
+	"time"
 
 	"6.5840/labrpc"
 )
@@ -39,10 +40,17 @@ func MakeClerk(server *labrpc.ClientEnd) *Clerk {
 func (ck *Clerk) Get(key string) string {
 	DPrintf("Clerk.Get(%s)", key)
 
-	args := &GetArgs{Key: key}
-	reply := &GetReply{}
+	reqId := nrand()
+	args := GetArgs{Key: key, IsResend: false, ReqId: reqId}
+	reply := GetReply{}
 
-	ck.server.Call("KVServer.Get", &args, &reply)
+	success := ck.server.Call("KVServer.Get", &args, &reply)
+	for !success {
+		time.Sleep(100 * time.Millisecond)
+		args.IsResend = true
+		success = ck.server.Call("KVServer.Get", &args, &reply)
+	}
+
 	return reply.Value // if empty, handled by server
 }
 
@@ -56,10 +64,20 @@ func (ck *Clerk) Get(key string) string {
 // arguments. and reply must be passed as a pointer.
 func (ck *Clerk) PutAppend(key string, value string, op string) string {
 	// You will have to modify this function.
-	args := &PutAppendArgs{Key: key, Value: value}
-	reply := &PutAppendReply{}
+	reqId := nrand()
+	args := PutAppendArgs{}
+	args.Key = key
+	args.Value = value
+	args.ReqId = reqId
+	args.IsResend = false
+	reply := PutAppendReply{}
 	DPrintf("Clerk.PutAppend(%s, %s, %s)", key, value, op)
-	ck.server.Call("KVServer."+op, &args, &reply)
+	success := ck.server.Call("KVServer."+op, &args, &reply)
+	for !success {
+		time.Sleep(100 * time.Millisecond)
+		args.IsResend = true
+		success = ck.server.Call("KVServer."+op, &args, &reply)
+	}
 	return reply.Value // if empty, handled by server
 }
 
