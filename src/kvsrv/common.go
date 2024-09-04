@@ -11,6 +11,13 @@ type PutAppendArgs struct {
 	ReqId    int64
 }
 
+type NotifyDoneArgs struct {
+	ReqId int64
+}
+
+type NotifyDoneReply struct {
+}
+
 type PutAppendReply struct {
 	Value string
 }

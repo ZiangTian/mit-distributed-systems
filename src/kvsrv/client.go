@@ -11,6 +11,7 @@ import (
 type Clerk struct {
 	server *labrpc.ClientEnd
 	// You will have to modify this struct.
+
 }
 
 func nrand() int64 {
@@ -51,7 +52,19 @@ func (ck *Clerk) Get(key string) string {
 		success = ck.server.Call("KVServer.Get", &args, &reply)
 	}
 
+	ck.NotifyDone(reqId)
+
 	return reply.Value // if empty, handled by server
+}
+
+func (ck *Clerk) NotifyDone(reqId int64) {
+	args := NotifyDoneArgs{ReqId: reqId}
+	reply := NotifyDoneReply{}
+	success := ck.server.Call("KVServer.NotifyDone", &args, &reply)
+	for !success {
+		time.Sleep(100 * time.Millisecond)
+		success = ck.server.Call("KVServer.NotifyDone", &args, &reply)
+	}
 }
 
 // shared by Put and Append.
@@ -78,6 +91,8 @@ func (ck *Clerk) PutAppend(key string, value string, op string) string {
 		args.IsResend = true
 		success = ck.server.Call("KVServer."+op, &args, &reply)
 	}
+
+	ck.NotifyDone(reqId)
 	return reply.Value // if empty, handled by server
 }
 
