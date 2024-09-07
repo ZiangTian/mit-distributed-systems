@@ -83,6 +83,7 @@ type Raft struct {
 	lastHeartbeat time.Time
 
 	numberVotes int
+	mu2         sync.Mutex
 }
 
 // return currentTerm and whether this server
@@ -182,6 +183,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	} else if args.Term > rf.currentTerm {
 		// update current term before voting  ** not sure **
 		rf.currentTerm = args.Term
+		rf.state = 0 // follower
 	}
 
 	rf.lastHeartbeat = time.Now()
@@ -221,15 +223,17 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	} else if args.Term > rf.currentTerm {
 		rf.currentTerm = args.Term
+		rf.state = 0 // follower
 	}
 
 	// recognize the leader
-	rf.state = 0 // follower
+
 	rf.lastHeartbeat = time.Now()
 
 	// check if is heartbeat
 	if len(args.Entries) == 0 {
 		reply.Success = true
+		rf.state = 0 // follower
 		return
 	}
 
@@ -327,8 +331,11 @@ func (rf *Raft) ticker() {
 
 		// Your code here (3A)
 		// Check if a leader election should be started.
+		rf.mu.Lock()
+		state := rf.state
+		rf.mu.Unlock()
 
-		if rf.state != 2 { // not leader
+		if state != 2 { // not leader
 			rf.startElection() // check and start election if necessary
 		} else { // leader
 			rf.sendHeartbeats() // send heartbeats
@@ -345,13 +352,19 @@ func (rf *Raft) ticker() {
 // is triggered when a follower hasn't received a heartbeat for a while
 func (rf *Raft) startElection() {
 
-	electionTimeout := 150 + rand.Intn(150)
-	if time.Since(rf.lastHeartbeat) > time.Duration(electionTimeout)*time.Millisecond {
+	electionTimeout := 750 + rand.Intn(150)
+	rf.mu.Lock()
+	lastHeartbeat := rf.lastHeartbeat
+	rf.mu.Unlock()
+
+	if time.Since(lastHeartbeat) > time.Duration(electionTimeout)*time.Millisecond {
+		DPrintf("Raft server %d starting election for term %d", rf.me, rf.currentTerm)
 		// randomized election timeout
 		// time.Sleep(time.Duration(rand.Intn(300)) * time.Millisecond)
 
 		// curTerm := rf.currentTerm
 		rf.mu.Lock()
+		defer rf.mu.Unlock()
 
 		rf.currentTerm++
 		/*DO WE INCREMENT THE TERM RIGHT NOW?? OR WAIT TILL CONFIRMED TO BE THE LEADER*/
@@ -360,8 +373,6 @@ func (rf *Raft) startElection() {
 		rf.votedFor = rf.me
 
 		rf.numberVotes = 1 // vote for self
-
-		rf.mu.Unlock()
 
 		// send RequestVote RPCs to all other servers
 
@@ -390,19 +401,23 @@ func (rf *Raft) startElection() {
 				// check if the election was successful
 				if success && reply.VoteGranted {
 					// increment vote count
-					rf.mu.Lock()
+					rf.mu2.Lock()
 					rf.numberVotes++
-					rf.mu.Unlock()
+					rf.mu2.Unlock()
 				}
 			}(i)
 		}
 
 		wg.Wait()
 
-		rf.mu.Lock()                                           // audit the votes
+		// print vote count
+		DPrintf("Raft server %d received %d votes for term %d", rf.me, rf.numberVotes, rf.currentTerm)
 		if rf.numberVotes > len(rf.peers)/2 && rf.state == 1 { // make sure a heartbeat hasn't been received
 			rf.state = 2 // leader
+			DPrintf("Raft server %d is the leader for term %d", rf.me, rf.currentTerm)
 		} else {
+			DPrintf("Raft server %d lost the election for term %d", rf.me, rf.currentTerm)
+			rf.votedFor = -1
 			rf.state = 0 // follower
 			// reset vote count
 			rf.numberVotes = 0
@@ -410,12 +425,16 @@ func (rf *Raft) startElection() {
 			// decrement term
 			rf.currentTerm--
 		}
-		rf.mu.Unlock()
 	}
 }
 
 // send AppendEntries RPCs to all other servers
 func (rf *Raft) sendHeartbeats() {
+
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	DPrintf("Raft server %d sending heartbeats for term %d", rf.me, rf.currentTerm)
 
 	beforeCurrentTerm := rf.currentTerm
 
@@ -437,25 +456,25 @@ func (rf *Raft) sendHeartbeats() {
 				LeaderCommit: rf.commitIndex,
 			}
 			reply := AppendEntriesReply{}
-			rf.sendAppendEntries(server, &args, &reply)
+			success := rf.sendAppendEntries(server, &args, &reply)
 
 			// check if the leader term is still valid
-			rf.mu.Lock()
+			rf.mu2.Lock()
 			// rf.lastestTerm = rf.lastestTerm.lastestTerm && (reply.Term <= rf.currentTerm)
-			if reply.Term > rf.currentTerm {
+			if success && reply.Term > rf.currentTerm {
 				rf.currentTerm = reply.Term
 			}
-			rf.mu.Unlock()
+			rf.mu2.Unlock()
 		}(i)
 	}
 
 	wg.Wait()
 	// check if the leader term is still valid
-	rf.mu.Lock()
 	if (rf.currentTerm > beforeCurrentTerm) || rf.state != 2 {
+		DPrintf("Raft server %d is no longer the leader for term %d", rf.me, beforeCurrentTerm)
+		DPrintf("Because the current term is %d and the state is %d", rf.currentTerm, rf.state)
 		rf.state = 0 // follower
 	}
-	rf.mu.Unlock()
 }
 
 // the service or tester wants to create a Raft server. the ports
@@ -473,6 +492,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
+
+	// print info
+	DPrintf("Raft server %d created", rf.me)
+	DPrintf("Peers: %v", rf.peers)
 
 	// Your initialization code here (3A, 3B, 3C).
 	rf.state = 0 // follower
