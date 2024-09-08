@@ -181,9 +181,11 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.CurrentTerm = rf.currentTerm
 		return
 	} else if args.Term > rf.currentTerm {
-		// update current term before voting  ** not sure **
 		rf.currentTerm = args.Term
 		rf.state = 0 // follower
+
+		// since this is a new term, reset votedFor
+		rf.votedFor = -1
 	}
 
 	rf.lastHeartbeat = time.Now()
@@ -224,6 +226,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	} else if args.Term > rf.currentTerm {
 		rf.currentTerm = args.Term
 		rf.state = 0 // follower
+
+		// since this is a new term, reset votedFor
+		rf.votedFor = -1
 	}
 
 	// recognize the leader
@@ -276,13 +281,73 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 // that the caller passes the address of the reply struct with &, not
 // the struct itself.
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	return ok
+	// ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+
+	// // check if the election was successful
+	// // retry at most 3 times
+	// for !ok {
+	// 	time.Sleep(10 * time.Millisecond)
+	// 	DPrintf("RETRYING: Raft server %d failed to send RequestVote to server %d", rf.me, server)
+	// 	ok = rf.peers[server].Call("Raft.RequestVote", args, reply)
+	// }
+
+	// // i think there's a timeout for retries.
+	// return ok
+	timeout := 100 * time.Millisecond
+	done := make(chan bool, 1)
+
+	go func() {
+		for {
+			ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+			if ok {
+				done <- true
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout): // Stop retrying after timeout
+		DPrintf("Timeout: Raft server %d couldn't send RequestVote to server %d", rf.me, server)
+		return false
+	}
 }
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
-	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
-	return ok
+	// ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+
+	// // check if the election was successful
+	// for !ok {
+	// 	time.Sleep(10 * time.Millisecond)
+	// 	DPrintf("RETRYING: Raft server %d failed to send AppendEntries to server %d", rf.me, server)
+	// 	ok = rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	// }
+
+	// return ok
+	timeout := 100 * time.Millisecond
+	done := make(chan bool, 1)
+
+	go func() {
+		for {
+			ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+			if ok {
+				done <- true
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout): // Stop retrying after timeout
+		DPrintf("Timeout: Raft server %d couldn't send RequestVote to server %d", rf.me, server)
+		return false
+	}
 }
 
 // the service using Raft (e.g. a k/v server) wants to start
@@ -333,13 +398,14 @@ func (rf *Raft) ticker() {
 		// Check if a leader election should be started.
 		rf.mu.Lock()
 		state := rf.state
-		rf.mu.Unlock()
 
 		if state != 2 { // not leader
 			rf.startElection() // check and start election if necessary
 		} else { // leader
 			rf.sendHeartbeats() // send heartbeats
 		}
+
+		rf.mu.Unlock()
 
 		// pause for a random amount of time between 50 and 350
 		// milliseconds.
@@ -352,10 +418,13 @@ func (rf *Raft) ticker() {
 // is triggered when a follower hasn't received a heartbeat for a while
 func (rf *Raft) startElection() {
 
-	electionTimeout := 750 + rand.Intn(150)
-	rf.mu.Lock()
+	electionTimeout := 550 + rand.Intn(150)
+	// rf.mu.Lock()
+	// defer rf.mu.Unlock()
+
+	// already locked in ticker
+
 	lastHeartbeat := rf.lastHeartbeat
-	rf.mu.Unlock()
 
 	if time.Since(lastHeartbeat) > time.Duration(electionTimeout)*time.Millisecond {
 		DPrintf("Raft server %d starting election for term %d", rf.me, rf.currentTerm)
@@ -363,16 +432,13 @@ func (rf *Raft) startElection() {
 		// time.Sleep(time.Duration(rand.Intn(300)) * time.Millisecond)
 
 		// curTerm := rf.currentTerm
-		rf.mu.Lock()
-		defer rf.mu.Unlock()
 
 		rf.currentTerm++
 		/*DO WE INCREMENT THE TERM RIGHT NOW?? OR WAIT TILL CONFIRMED TO BE THE LEADER*/
 		rf.state = 1 // candidate
 		// vote for self
 		rf.votedFor = rf.me
-
-		rf.numberVotes = 1 // vote for self
+		rf.numberVotes = 1
 
 		// send RequestVote RPCs to all other servers
 
@@ -431,8 +497,10 @@ func (rf *Raft) startElection() {
 // send AppendEntries RPCs to all other servers
 func (rf *Raft) sendHeartbeats() {
 
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	// rf.mu.Lock()
+	// defer rf.mu.Unlock()
+
+	// already locked in ticker
 
 	DPrintf("Raft server %d sending heartbeats for term %d", rf.me, rf.currentTerm)
 
@@ -474,6 +542,7 @@ func (rf *Raft) sendHeartbeats() {
 		DPrintf("Raft server %d is no longer the leader for term %d", rf.me, beforeCurrentTerm)
 		DPrintf("Because the current term is %d and the state is %d", rf.currentTerm, rf.state)
 		rf.state = 0 // follower
+		rf.votedFor = -1
 	}
 }
 
