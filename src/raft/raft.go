@@ -358,16 +358,28 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 // may fail or lose an election. even if the Raft instance has been killed,
 // this function should return gracefully.
 //
+// *committed*: An entry is considered committed if it is safe for that entry to be applied to state machines.
+//
 // the first return value is the index that the command will appear at
 // if it's ever committed. the second return value is the current
 // term. the third return value is true if this server believes it is
 // the leader.
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
-
 	// Your code here (3B).
+
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	index := rf.me
+	term := rf.currentTerm
+	isLeader := rf.state == 2
+
+	if !isLeader {
+		return index, term, isLeader
+	}
+
+	// is leader, start agreement
+	rf.log = append(rf.log, LogEntry{Term: term, Command: command})
 
 	return index, term, isLeader
 }
