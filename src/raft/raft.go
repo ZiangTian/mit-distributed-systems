@@ -82,8 +82,9 @@ type Raft struct {
 
 	lastHeartbeat time.Time
 
-	numberVotes int
-	mu2         sync.Mutex
+	numberVotes     int
+	replicatedCount int
+	mu2             sync.Mutex
 }
 
 // return currentTerm and whether this server
@@ -350,6 +351,68 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	}
 }
 
+func (rf *Raft) replicateEntries() {
+	// send AppendEntries RPCs to all other servers
+
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	// var mu sync.Mutex
+	half := (len(rf.peers) + 1) / 2
+	cond := sync.NewCond(&rf.mu2)
+
+	// issue AppendEntries RPCs to all other servers
+	for i := 0; i < len(rf.peers); i++ {
+		if i == rf.me {
+			continue
+		}
+
+		go func(server int) {
+			args := AppendEntriesArgs{
+				Term:         rf.currentTerm,
+				LeaderId:     rf.me,
+				PrevLogIndex: len(rf.log) - 1,
+				PrevLogTerm:  rf.log[len(rf.log)-1].Term,
+				Entries:      nil,
+				LeaderCommit: rf.commitIndex,
+			}
+			reply := AppendEntriesReply{}
+			rf.sendAppendEntries(server, &args, &reply)
+
+			// retries indefinitely
+			for !reply.Success {
+				rf.sendAppendEntries(server, &args, &reply)
+				time.Sleep(10 * time.Millisecond)
+			}
+
+			// do something with the reply
+			rf.mu2.Lock()
+			// update nextIndex and matchIndex
+
+			// update commitIndex
+
+			// update replicatedCount
+			rf.replicatedCount++
+			if rf.replicatedCount == half {
+				// update commitIndex
+				cond.Broadcast() // notify all goroutines that the commitIndex has been updated
+			}
+			rf.mu2.Unlock()
+		}(i)
+	}
+
+	rf.mu2.Lock()
+
+	for rf.replicatedCount < half {
+		cond.Wait()
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	rf.mu2.Unlock()
+
+	rf.commitIndex++
+}
+
 // the service using Raft (e.g. a k/v server) wants to start
 // agreement on the next command to be appended to Raft's log. if this
 // server isn't the leader, returns false. otherwise start the
@@ -379,7 +442,10 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	}
 
 	// is leader, start agreement
-	rf.log = append(rf.log, LogEntry{Term: term, Command: command})
+	rf.log = append(rf.log, LogEntry{Term: term, Command: command}) // appends the command to the its own log
+
+	// replicate the entry
+	rf.replicateEntries() // this will return when the entry has been replicated to a majority of servers
 
 	return index, term, isLeader
 }
