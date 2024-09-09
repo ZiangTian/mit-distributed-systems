@@ -243,14 +243,25 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 
-	// verify entries
-	locatedEntry := rf.log[args.PrevLogIndex]
-	if locatedEntry.Term != args.PrevLogTerm {
+	// check coherency
+	if args.PrevLogIndex >= len(rf.log) || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
 		reply.Success = false
+		// coherency check failed
 		return
 	}
 
-	// check for conflicting entries
+	// matched, append entries
+	rf.log = append(rf.log[:args.PrevLogIndex+1], args.Entries...)
+
+	// update commitIndex
+	if args.LeaderCommit > rf.commitIndex {
+		rf.commitIndex = args.LeaderCommit // the leader keeps the highest commitIndex
+	} else {
+		// follower commitIndex larger than leader's
+		panic("follower commitIndex larger than leader's")
+	}
+
+	// apply the log entries to the state machine when majority of servers have replicated the entry. could be done in a separate goroutine
 
 }
 
@@ -351,7 +362,104 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	}
 }
 
-func (rf *Raft) replicateEntries() {
+func (rf *Raft) revertToFollower(latestTerm int) {
+	rf.mu2.Lock()
+	rf.currentTerm = latestTerm
+	rf.state = 0 // follower
+	rf.votedFor = -1
+	rf.numberVotes = 0
+	rf.mu2.Unlock()
+}
+
+func (rf *Raft) ReplicateEntries(server int, cond *sync.Cond) { // called by leader. leader would have already acquired the lock
+	// but the leader also starts many goroutines to replicate entries to all other servers, using this func
+
+	// rf already locked outside
+	args := AppendEntriesArgs{
+		Term:         rf.currentTerm,
+		LeaderId:     rf.me,
+		PrevLogIndex: len(rf.log) - 1,
+		PrevLogTerm:  rf.log[len(rf.log)-1].Term,
+		Entries:      rf.log[len(rf.log)-1:],
+		LeaderCommit: rf.commitIndex,
+	}
+	reply := AppendEntriesReply{}
+
+	half := (len(rf.peers) + 1) / 2
+
+	ok := rf.sendAppendEntries(server, &args, &reply)
+
+	for !ok {
+		ok = rf.sendAppendEntries(server, &args, &reply)
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// parse the reply
+
+	// check term validity
+
+	if reply.Term > rf.currentTerm {
+		rf.revertToFollower(reply.Term)
+		// invalidate leader data
+		// let the outside func check the status
+		return
+	}
+
+	// check for inconsistencies
+	for !reply.Success { // we could use recursion here, but take up too much stack space
+
+		// decrement nextIndex and retry
+		rf.mu2.Lock()
+
+		// retry
+		rf.nextIndex[server]--
+		args.PrevLogIndex = rf.nextIndex[server] - 1
+		args.PrevLogTerm = rf.log[args.PrevLogIndex].Term
+		args.Entries = rf.log[args.PrevLogIndex:]
+
+		rf.mu2.Unlock()
+
+		// repeat. will optimize the code to reduce redundancy later
+
+		ok := rf.sendAppendEntries(server, &args, &reply)
+
+		for !ok {
+			ok = rf.sendAppendEntries(server, &args, &reply)
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		// parse the reply
+
+		// check term validity
+		if reply.Term > rf.currentTerm {
+			rf.revertToFollower(reply.Term)
+			// invalidate leader data
+			// let the outside func check the status
+			return
+		}
+
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// success, matched
+	rf.mu2.Lock()
+	// update nextIndex and matchIndex
+	rf.matchIndex[server] = len(rf.log) - 1
+	rf.nextIndex[server] = len(rf.log)
+
+	// update replicatedCount
+	rf.replicatedCount++
+	if rf.replicatedCount == half {
+		// update commitIndex
+		cond.Broadcast() // notify all goroutines that the commitIndex has been updated
+	}
+	rf.mu2.Unlock()
+
+}
+
+func (rf *Raft) sendReplicateEntries() {
+	// what happens if the leader is not the leader anymore in this function??????
+
 	// send AppendEntries RPCs to all other servers
 
 	rf.mu.Lock()
@@ -367,38 +475,7 @@ func (rf *Raft) replicateEntries() {
 			continue
 		}
 
-		go func(server int) {
-			args := AppendEntriesArgs{
-				Term:         rf.currentTerm,
-				LeaderId:     rf.me,
-				PrevLogIndex: len(rf.log) - 1,
-				PrevLogTerm:  rf.log[len(rf.log)-1].Term,
-				Entries:      nil,
-				LeaderCommit: rf.commitIndex,
-			}
-			reply := AppendEntriesReply{}
-			rf.sendAppendEntries(server, &args, &reply)
-
-			// retries indefinitely
-			for !reply.Success {
-				rf.sendAppendEntries(server, &args, &reply)
-				time.Sleep(10 * time.Millisecond)
-			}
-
-			// do something with the reply
-			rf.mu2.Lock()
-			// update nextIndex and matchIndex
-
-			// update commitIndex
-
-			// update replicatedCount
-			rf.replicatedCount++
-			if rf.replicatedCount == half {
-				// update commitIndex
-				cond.Broadcast() // notify all goroutines that the commitIndex has been updated
-			}
-			rf.mu2.Unlock()
-		}(i)
+		go rf.ReplicateEntries(i, cond)
 	}
 
 	rf.mu2.Lock()
@@ -409,6 +486,13 @@ func (rf *Raft) replicateEntries() {
 	}
 
 	rf.mu2.Unlock()
+
+	// we ignore the cases where the leader gets ousted in the interim
+	// because this function is atomic to other functions that could change the leader status
+
+	if rf.state != 2 {
+		panic("Leader status changed while appending entries")
+	}
 
 	rf.commitIndex++
 }
@@ -445,7 +529,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.log = append(rf.log, LogEntry{Term: term, Command: command}) // appends the command to the its own log
 
 	// replicate the entry
-	rf.replicateEntries() // this will return when the entry has been replicated to a majority of servers
+	rf.sendReplicateEntries() // this will return when the entry has been replicated to a majority of servers
 
 	return index, term, isLeader
 }
