@@ -28,7 +28,7 @@ import (
 	"6.5840/labrpc"
 )
 
-// as each Raft peer becomes aware that successive log entries are
+// ApplyMsg as each Raft peer becomes aware that successive log entries are
 // committed, the peer should send an ApplyMsg to the service (or
 // tester) on the same server, via the applyCh passed to Make(). set
 // CommandValid to true to indicate that the ApplyMsg contains a newly
@@ -54,7 +54,7 @@ type LogEntry struct {
 	Command interface{} // command for state machine
 }
 
-// A Go object implementing a single Raft *peer*.
+// Raft A Go object implementing a single Raft *peer*.
 type Raft struct {
 	mu        sync.Mutex          // Lock to protect shared access to this peer's state
 	peers     []*labrpc.ClientEnd // RPC end points of all peers
@@ -87,7 +87,7 @@ type Raft struct {
 	mu2             sync.Mutex
 }
 
-// return currentTerm and whether this server
+// GetState return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
 
@@ -141,7 +141,7 @@ func (rf *Raft) readPersist(data []byte) {
 	// }
 }
 
-// the service says it has created a snapshot that has
+// Snapshot the service says it has created a snapshot that has
 // all info up to and including index. this means the
 // service no longer needs the log through (and including)
 // that index. Raft should now trim its log as much as possible.
@@ -150,7 +150,7 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 
 }
 
-// example RequestVote RPC arguments structure.
+// RequestVoteArgs example RequestVote RPC arguments structure.
 // field names must start with capital letters!
 type RequestVoteArgs struct {
 	// Your data here (3A, 3B).
@@ -161,7 +161,7 @@ type RequestVoteArgs struct {
 	LastLogTerm  int // term of candidate's last log entry
 }
 
-// example RequestVote RPC reply structure.
+// RequestVoteReply example RequestVote RPC reply structure.
 // field names must start with capital letters!
 type RequestVoteReply struct {
 	// Your data here (3A).
@@ -170,7 +170,7 @@ type RequestVoteReply struct {
 	VoteGranted bool // true means candidate received vote
 }
 
-// example RequestVote RPC handler.
+// RequestVote example RequestVote RPC handler.
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
 
@@ -357,7 +357,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	case <-done:
 		return true
 	case <-time.After(timeout): // Stop retrying after timeout
-		DPrintf("Timeout: Raft server %d couldn't send RequestVote to server %d", rf.me, server)
+		DPrintf("Timeout: Raft server %d couldn't send AppendEntries to server %d", rf.me, server)
 		return false
 	}
 }
@@ -374,6 +374,7 @@ func (rf *Raft) revertToFollower(latestTerm int) {
 func (rf *Raft) ReplicateEntries(server int, cond *sync.Cond) { // called by leader. leader would have already acquired the lock
 	// but the leader also starts many goroutines to replicate entries to all other servers, using this func
 
+	DPrintf("Raft server %d replicating entries to server %d", rf.me, server)
 	// rf already locked outside
 	args := AppendEntriesArgs{
 		Term:         rf.currentTerm,
@@ -389,9 +390,12 @@ func (rf *Raft) ReplicateEntries(server int, cond *sync.Cond) { // called by lea
 
 	ok := rf.sendAppendEntries(server, &args, &reply)
 
+	// if !ok {
+	// 	DPrintf("Raft server %d failed to replicate entries to server %d, retrying indefinitely", rf.me, server)
+	// }
 	for !ok {
 		ok = rf.sendAppendEntries(server, &args, &reply)
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	// parse the reply
@@ -400,6 +404,7 @@ func (rf *Raft) ReplicateEntries(server int, cond *sync.Cond) { // called by lea
 
 	if reply.Term > rf.currentTerm {
 		rf.revertToFollower(reply.Term)
+		DPrintf("Leader server %d outdated for term %d", rf.me, rf.currentTerm)
 		// invalidate leader data
 		// let the outside func check the status
 		return
@@ -407,6 +412,8 @@ func (rf *Raft) ReplicateEntries(server int, cond *sync.Cond) { // called by lea
 
 	// check for inconsistencies
 	for !reply.Success { // we could use recursion here, but take up too much stack space
+
+		DPrintf("Raft server %d failed to replicate entries to server %d due to inconsistency, retrying", rf.me, server)
 
 		// decrement nextIndex and retry
 		rf.mu2.Lock()
@@ -451,6 +458,7 @@ func (rf *Raft) ReplicateEntries(server int, cond *sync.Cond) { // called by lea
 	rf.replicatedCount++
 	if rf.replicatedCount == half {
 		// update commitIndex
+		DPrintf("Half of the servers have replicated the entry, lastest is %d, broadcasting", server)
 		cond.Broadcast() // notify all goroutines that the commitIndex has been updated
 	}
 	rf.mu2.Unlock()
@@ -474,7 +482,6 @@ func (rf *Raft) sendReplicateEntries() {
 		if i == rf.me {
 			continue
 		}
-
 		go rf.ReplicateEntries(i, cond)
 	}
 
@@ -497,7 +504,7 @@ func (rf *Raft) sendReplicateEntries() {
 	rf.commitIndex++
 }
 
-// the service using Raft (e.g. a k/v server) wants to start
+// Start the service using Raft (e.g. a k/v server) wants to start
 // agreement on the next command to be appended to Raft's log. if this
 // server isn't the leader, returns false. otherwise start the
 // agreement and return immediately. there is no guarantee that this
@@ -525,6 +532,8 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		return index, term, isLeader
 	}
 
+	DPrintf("Starting command %v for server %d", command, rf.me)
+
 	// is leader, start agreement
 	rf.log = append(rf.log, LogEntry{Term: term, Command: command}) // appends the command to the its own log
 
@@ -534,7 +543,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	return index, term, isLeader
 }
 
-// the tester doesn't halt goroutines created by Raft after each test,
+// Kill the tester doesn't halt goroutines created by Raft after each test,
 // but it does call the Kill() method. your code can use killed() to
 // check whether Kill() has been called. the use of atomic avoids the
 // need for a lock.
@@ -708,7 +717,7 @@ func (rf *Raft) sendHeartbeats() {
 	}
 }
 
-// the service or tester wants to create a Raft server. the ports
+// Make the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
 // server's port is peers[me]. all the servers' peers[] arrays
 // have the same order. persister is a place for this server to
@@ -734,7 +743,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.votedFor = -1
 	rf.log = make([]LogEntry, 1) // log[0] is a dummy entry
 
-	// idk what these are
 	rf.commitIndex = 0
 	rf.lastApplied = 0
 	rf.nextIndex = make([]int, len(peers))
@@ -742,6 +750,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	rf.lastHeartbeat = time.Now()
 	rf.numberVotes = 0
+	rf.replicatedCount = 0
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
