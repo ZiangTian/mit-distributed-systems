@@ -85,6 +85,7 @@ type Raft struct {
 	numberVotes     int
 	replicatedCount int
 	mu2             sync.Mutex
+	applyCh         chan ApplyMsg
 }
 
 // GetState return currentTerm and whether this server
@@ -226,6 +227,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	} else if args.Term > rf.currentTerm {
 		rf.currentTerm = args.Term
+		reply.Term = rf.currentTerm
 		rf.state = 0 // follower
 
 		// since this is a new term, reset votedFor
@@ -240,28 +242,53 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if len(args.Entries) == 0 {
 		reply.Success = true
 		rf.state = 0 // follower
+
+		// update commitIndex
+		if args.LeaderCommit >= rf.commitIndex {
+			rf.commitIndex = args.LeaderCommit // the leader keeps the highest commitIndex
+		} else {
+			// follower commitIndex larger than leader's
+			panic("follower commitIndex larger than leader's")
+		}
+
+		// apply the log entries to the state machine when the majority of servers have replicated the entry. could be done in a separate goroutine
+
+		rf.sendApplyMsg() // already up-to-date with leader's commitIndex. therefore can be called here
+
 		return
 	}
 
 	// check coherency
-	if args.PrevLogIndex >= len(rf.log) || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
+	DPrintf("Checking coherency for server %d", rf.me)
+	DPrintf("PrevLogIndex: %d, PrevLogTerm: %d", args.PrevLogIndex, args.PrevLogTerm)
+	// print rf.log
+	DPrintf("Log length for server %d is %d", rf.me, len(rf.log))
+
+	// 如果PrevLogIndex是1的话 (上一个被commit的是第2个元素)，rf.log里应该有一个一样的1号元素 (第二个元素)
+	if args.PrevLogIndex > len(rf.log)-1 || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
 		reply.Success = false
+		DPrintf("Coherency check failed for server %d", rf.me)
 		// coherency check failed
 		return
 	}
+	DPrintf("Coherency check passed for server %d", rf.me)
+	reply.Success = true
 
 	// matched, append entries
+	DPrintf("Appending entries for server %d, previous entries are: %v", rf.me, rf.log[:args.PrevLogIndex+1])
 	rf.log = append(rf.log[:args.PrevLogIndex+1], args.Entries...)
 
 	// update commitIndex
-	if args.LeaderCommit > rf.commitIndex {
+	if args.LeaderCommit >= rf.commitIndex {
 		rf.commitIndex = args.LeaderCommit // the leader keeps the highest commitIndex
 	} else {
 		// follower commitIndex larger than leader's
 		panic("follower commitIndex larger than leader's")
 	}
 
-	// apply the log entries to the state machine when majority of servers have replicated the entry. could be done in a separate goroutine
+	// apply the log entries to the state machine when the majority of servers have replicated the entry. could be done in a separate goroutine
+
+	rf.sendApplyMsg() // already up-to-date with leader's commitIndex. therefore can be called here
 
 }
 
@@ -357,7 +384,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	case <-done:
 		return true
 	case <-time.After(timeout): // Stop retrying after timeout
-		DPrintf("Timeout: Raft server %d couldn't send AppendEntries to server %d", rf.me, server)
+		//DPrintf("Timeout: Raft server %d couldn't send AppendEntries to server %d", rf.me, server)
 		return false
 	}
 }
@@ -376,11 +403,17 @@ func (rf *Raft) ReplicateEntries(server int, cond *sync.Cond) { // called by lea
 
 	DPrintf("Raft server %d replicating entries to server %d", rf.me, server)
 	// rf already locked outside
+	//prevlogId := rf.nextIndex[server] - 1
+	//if prevlogId < 0 {
+	//
+	//}
+	DPrintf("log length for server %d is %d", rf.me, len(rf.log))
+	DPrintf("Sending entries: %v", rf.log[len(rf.log)-1:])
 	args := AppendEntriesArgs{
 		Term:         rf.currentTerm,
 		LeaderId:     rf.me,
-		PrevLogIndex: len(rf.log) - 1,
-		PrevLogTerm:  rf.log[len(rf.log)-1].Term,
+		PrevLogIndex: len(rf.log) - 2, // first time: 0
+		PrevLogTerm:  rf.log[len(rf.log)-2].Term,
 		Entries:      rf.log[len(rf.log)-1:],
 		LeaderCommit: rf.commitIndex,
 	}
@@ -448,6 +481,8 @@ func (rf *Raft) ReplicateEntries(server int, cond *sync.Cond) { // called by lea
 		time.Sleep(20 * time.Millisecond)
 	}
 
+	DPrintf("Raft server %d successfully replicated entries to server %d", rf.me, server)
+
 	// success, matched
 	rf.mu2.Lock()
 	// update nextIndex and matchIndex
@@ -482,26 +517,59 @@ func (rf *Raft) sendReplicateEntries() {
 		if i == rf.me {
 			continue
 		}
+		DPrintf("Leader %d Firing off append entries to server %d", rf.me, i)
 		go rf.ReplicateEntries(i, cond)
 	}
 
 	rf.mu2.Lock()
 
 	for rf.replicatedCount < half {
+		DPrintf("replicatedCount is %d, waiting for majority", rf.replicatedCount)
 		cond.Wait()
 		time.Sleep(10 * time.Millisecond)
 	}
-
 	rf.mu2.Unlock()
 
 	// we ignore the cases where the leader gets ousted in the interim
 	// because this function is atomic to other functions that could change the leader status
+
+	rf.mu2.Lock()
+	defer rf.mu2.Unlock()
+
+	// print peer log contents to ensure consistency
+	for i := 0; i < len(rf.peers); i++ {
+		DPrintf("Peer %d log contents: %v", i, rf.log)
+	}
 
 	if rf.state != 2 {
 		panic("Leader status changed while appending entries")
 	}
 
 	rf.commitIndex++
+
+	rf.sendApplyMsg()
+
+}
+
+// sendApplyMsg sends an ApplyMsg to the applyCh channel
+func (rf *Raft) sendApplyMsg() {
+	// already locked outside
+
+	// check if the commitIndex has been updated
+	for rf.commitIndex > rf.lastApplied { // rf.log[lastApplied] has been applied. last applied is inited to 0
+		DPrintf("Server %d applying, commitIndex is %d, lastApplied is %d", rf.me, rf.commitIndex, rf.lastApplied)
+		rf.lastApplied++
+		msg := ApplyMsg{
+			CommandValid: true,
+			Command:      rf.log[rf.lastApplied].Command,
+			CommandIndex: rf.lastApplied - 1,
+		}
+		DPrintf("Raft server %d sending ApplyMsg for index %d", rf.me, rf.lastApplied-1)
+		//rf.mu2.Lock()
+		rf.applyCh <- msg
+		//rf.mu2.Unlock()
+	}
+
 }
 
 // Start the service using Raft (e.g. a k/v server) wants to start
@@ -522,20 +590,24 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	// Your code here (3B).
 
 	rf.mu.Lock()
-	defer rf.mu.Unlock()
 
 	index := rf.me
 	term := rf.currentTerm
 	isLeader := rf.state == 2
 
 	if !isLeader {
+		rf.mu.Unlock()
 		return index, term, isLeader
 	}
 
 	DPrintf("Starting command %v for server %d", command, rf.me)
 
 	// is leader, start agreement
-	rf.log = append(rf.log, LogEntry{Term: term, Command: command}) // appends the command to the its own log
+	rf.log = append(rf.log, LogEntry{Term: term, Command: command}) // appends the command to its own log
+
+	rf.replicatedCount = 1 // the leader has already replicated the entry to itself
+
+	rf.mu.Unlock()
 
 	// replicate the entry
 	rf.sendReplicateEntries() // this will return when the entry has been replicated to a majority of servers
@@ -673,7 +745,7 @@ func (rf *Raft) sendHeartbeats() {
 
 	// already locked in ticker
 
-	DPrintf("Raft server %d sending heartbeats for term %d", rf.me, rf.currentTerm)
+	//DPrintf("Raft server %d sending heartbeats for term %d", rf.me, rf.currentTerm)
 
 	beforeCurrentTerm := rf.currentTerm
 
@@ -732,6 +804,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
+	rf.applyCh = applyCh
 
 	// print info
 	DPrintf("Raft server %d created", rf.me)
