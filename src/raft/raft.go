@@ -18,6 +18,7 @@ package raft
 //
 
 import (
+	"math"
 	//	"bytes"
 	"math/rand"
 	"sync"
@@ -171,6 +172,15 @@ type RequestVoteReply struct {
 	VoteGranted bool // true means candidate received vote
 }
 
+func isMoreUpToDate(lastLogTerm, lastLogIndex, candidateLastLogTerm, candidateLastLogIndex int) bool {
+	if lastLogTerm > candidateLastLogTerm {
+		return true
+	} else if lastLogTerm == candidateLastLogTerm {
+		return lastLogIndex > candidateLastLogIndex
+	}
+	return false
+}
+
 // RequestVote example RequestVote RPC handler.
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
@@ -193,7 +203,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.lastHeartbeat = time.Now()
 
 	// voting
-	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && args.LastLogTerm >= rf.log[len(rf.log)-1].Term {
+	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && !isMoreUpToDate(rf.log[len(rf.log)-1].Term, len(rf.log)-1, args.LastLogTerm, args.LastLogIndex) {
 		reply.VoteGranted = true
 		rf.votedFor = args.CandidateId
 	} else {
@@ -225,14 +235,14 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		reply.Success = false
 		reply.Term = rf.currentTerm
 		return
-	} else if args.Term > rf.currentTerm {
-		rf.currentTerm = args.Term
-		reply.Term = rf.currentTerm
-		rf.state = 0 // follower
-
-		// since this is a new term, reset votedFor
-		rf.votedFor = -1
 	}
+
+	rf.currentTerm = args.Term
+	reply.Term = rf.currentTerm
+	rf.state = 0 // follower
+
+	// since this is a new term, reset votedFor
+	rf.votedFor = -1
 
 	// recognize the leader
 
@@ -241,19 +251,19 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// check if is heartbeat
 	if len(args.Entries) == 0 {
 		reply.Success = true
-		rf.state = 0 // follower
 
 		// update commitIndex
-		if args.LeaderCommit >= rf.commitIndex {
-			rf.commitIndex = args.LeaderCommit // the leader keeps the highest commitIndex
-		} else {
-			// follower commitIndex larger than leader's
-			panic("follower commitIndex larger than leader's")
-		}
-
-		// apply the log entries to the state machine when the majority of servers have replicated the entry. could be done in a separate goroutine
-
-		rf.sendApplyMsg() // already up-to-date with leader's commitIndex. therefore can be called here
+		//if args.LeaderCommit >= rf.commitIndex {
+		//	indexLastNewEntry := len(rf.log) - 1
+		//	rf.commitIndex = int(math.Min(float64(indexLastNewEntry), float64(args.LeaderCommit))) // the leader keeps the highest commitIndex
+		//} else {
+		//	// follower commitIndex larger than leader's
+		//	panic("follower commitIndex larger than leader's")
+		//}
+		//
+		//// apply the log entries to the state machine when the majority of servers have replicated the entry. could be done in a separate goroutine
+		//
+		//rf.sendApplyMsg() // already up-to-date with leader's commitIndex. therefore can be called here
 
 		return
 	}
@@ -267,6 +277,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// 如果PrevLogIndex是1的话 (上一个被commit的是第2个元素)，rf.log里应该有一个一样的1号元素 (第二个元素)
 	if args.PrevLogIndex > len(rf.log)-1 || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
 		reply.Success = false
+		// delete all entries after PrevLogIndex
+		rf.log = rf.log[:args.PrevLogIndex]
 		DPrintf("Coherency check failed for server %d", rf.me)
 		// coherency check failed
 		return
@@ -280,7 +292,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// update commitIndex
 	if args.LeaderCommit >= rf.commitIndex {
-		rf.commitIndex = args.LeaderCommit // the leader keeps the highest commitIndex
+		indexLastNewEntry := len(rf.log) - 1
+		rf.commitIndex = int(math.Min(float64(indexLastNewEntry), float64(args.LeaderCommit))) // the leader keeps the highest commitIndex
 	} else {
 		// follower commitIndex larger than leader's
 		panic("follower commitIndex larger than leader's")
@@ -401,6 +414,9 @@ func (rf *Raft) revertToFollower(latestTerm int) {
 func (rf *Raft) ReplicateEntries(server int, cond *sync.Cond) { // called by leader. leader would have already acquired the lock
 	// but the leader also starts many goroutines to replicate entries to all other servers, using this func
 
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
 	DPrintf("Raft server %d replicating entries to server %d", rf.me, server)
 	// rf already locked outside
 	//prevlogId := rf.nextIndex[server] - 1
@@ -505,9 +521,6 @@ func (rf *Raft) sendReplicateEntries() {
 
 	// send AppendEntries RPCs to all other servers
 
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-
 	// var mu sync.Mutex
 	half := (len(rf.peers) + 1) / 2
 	cond := sync.NewCond(&rf.mu2)
@@ -537,15 +550,34 @@ func (rf *Raft) sendReplicateEntries() {
 	defer rf.mu2.Unlock()
 
 	// print peer log contents to ensure consistency
-	for i := 0; i < len(rf.peers); i++ {
-		DPrintf("Peer %d log contents: %v", i, rf.log)
-	}
 
 	if rf.state != 2 {
 		panic("Leader status changed while appending entries")
 	}
 
 	rf.commitIndex++
+	rf.matchIndex[rf.me] = len(rf.log) - 1
+	rf.nextIndex[rf.me] = len(rf.log)
+
+	/* did some research and here we use median */
+	// sort matchIndex
+	//copyMatchIndex := make([]int, len(rf.peers))
+	//copy(copyMatchIndex, rf.matchIndex)
+	//copyMatchIndex[rf.me] = len(rf.log)
+	//sort.Ints(copyMatchIndex)
+	//N := copyMatchIndex[len(rf.peers)/2]
+	//if N > rf.commitIndex && rf.log[N-1].Term == rf.currentTerm {
+	//	rf.commitIndex = N
+	//}
+
+	DPrintf("\n")
+
+	DPrintf("leader %d log contents: %v", rf.me, rf.log)
+	DPrintf("leader %d commitIndex: %d", rf.me, rf.commitIndex)
+	DPrintf("leader %d matchIndex: %v", rf.me, rf.matchIndex)
+	DPrintf("leader %d nextIndex: %v", rf.me, rf.nextIndex)
+
+	DPrintf("\n")
 
 	rf.sendApplyMsg()
 
@@ -557,14 +589,15 @@ func (rf *Raft) sendApplyMsg() {
 
 	// check if the commitIndex has been updated
 	for rf.commitIndex > rf.lastApplied { // rf.log[lastApplied] has been applied. last applied is inited to 0
-		DPrintf("Server %d applying, commitIndex is %d, lastApplied is %d", rf.me, rf.commitIndex, rf.lastApplied)
+
 		rf.lastApplied++
 		msg := ApplyMsg{
 			CommandValid: true,
 			Command:      rf.log[rf.lastApplied].Command,
-			CommandIndex: rf.lastApplied - 1,
+			CommandIndex: rf.lastApplied,
 		}
-		DPrintf("Raft server %d sending ApplyMsg for index %d", rf.me, rf.lastApplied-1)
+		DPrintf("Server %d applying, commitIndex is %d, lastApplied is %d, command is %v", rf.me, rf.commitIndex, rf.lastApplied, rf.log[rf.lastApplied].Command)
+
 		//rf.mu2.Lock()
 		rf.applyCh <- msg
 		//rf.mu2.Unlock()
@@ -603,6 +636,11 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	DPrintf("Starting command %v for server %d", command, rf.me)
 
 	// is leader, start agreement
+
+	// if the log is empty, replace it with the new command
+
+	DPrintf("Log length for server %d is %d", rf.me, len(rf.log))
+
 	rf.log = append(rf.log, LogEntry{Term: term, Command: command}) // appends the command to its own log
 
 	rf.replicatedCount = 1 // the leader has already replicated the entry to itself
@@ -644,6 +682,9 @@ func (rf *Raft) ticker() {
 
 		if state != 2 { // not leader
 			rf.startElection() // check and start election if necessary
+			if rf.state == 2 { // leader
+				rf.sendHeartbeats() // send heartbeats
+			}
 		} else { // leader
 			rf.sendHeartbeats() // send heartbeats
 		}

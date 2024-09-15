@@ -497,7 +497,8 @@ func (cfg *config) nCommitted(index int) (int, interface{}) {
 		cmd1, ok := cfg.logs[i][index]
 		cfg.mu.Unlock()
 
-		if ok {
+		if ok { // if exists
+			DPrintf("In ncopmmited, cmd1 is %v, cmd is %v", cmd1, cmd)
 			if count > 0 && cmd != cmd1 {
 				cfg.t.Fatalf("committed values do not match: index %v, %v, %v",
 					index, cmd, cmd1)
@@ -583,8 +584,14 @@ func (cfg *config) one(cmd interface{}, expectedServers int, retry bool) int {
 				nd, cmd1 := cfg.nCommitted(index)
 				if nd > 0 && nd >= expectedServers {
 					// committed
+					DPrintf("committed command %v", cmd1)
+					DPrintf("Given Command %v", cmd)
+					DPrintf("committed servers %v", nd)
+					DPrintf("expectedServers %v", expectedServers)
+
 					if cmd1 == cmd {
 						// and it was the command we submitted.
+						DPrintf("Command %d passed the agreement test", index)
 						return index
 					}
 				}
