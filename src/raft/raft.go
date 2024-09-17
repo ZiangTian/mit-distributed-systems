@@ -245,7 +245,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 
 	// make follower
-	makeFollower(rf, args.Term, -1) // since this is a new term, reset votedFor
+	makeFollower(rf, args.Term) // since this is a new term, reset votedFor
 
 	// check if is heartbeat
 	if len(args.Entries) == 0 {
@@ -697,7 +697,7 @@ func (rf *Raft) ticker() {
 // protected by rf.mu
 func (rf *Raft) detectElectTimeout() {
 	if rf.state != FOLLOWER {
-		panic("detectElectTimeout called by non-follower")
+		DPrintf("detectElectTimeout called by non-follower")
 		return
 	}
 	electionTimeout := ELECTIONTIMEOUTBASE + rand.Intn(150)
@@ -712,7 +712,7 @@ func (rf *Raft) detectElectTimeout() {
 // protected by rf.mu
 func (rf *Raft) startElection() {
 	if rf.state != CANDIDATE {
-		panic("startElection called by non-candidate")
+		DPrintf("startElection called by non-candidate")
 		return
 	}
 
@@ -754,7 +754,7 @@ func (rf *Raft) startElection() {
 			if success {
 				if reply.CurrentTerm > curTerm {
 					latestTerm := int(math.Max(float64(reply.CurrentTerm), float64(rf.currentTerm)))
-					makeFollower(rf, latestTerm, -1)
+					makeFollower(rf, latestTerm)
 					return
 				} else if reply.VoteGranted {
 					rf.mu2.Lock()
@@ -795,7 +795,7 @@ func (rf *Raft) startElection() {
 func (rf *Raft) syncLog() {
 	// make sure the leader is still the leader
 	if rf.state != LEADER {
-		panic("syncLog called by non-leader")
+		DPrintf("syncLog called by non-leader")
 		return
 	}
 
@@ -846,7 +846,7 @@ func (rf *Raft) syncLog() {
 				} else if reply.Term > rf.currentTerm || rf.currentTerm != args.Term {
 					// not leader anymore
 
-					makeFollower(rf, reply.Term, -1)
+					makeFollower(rf, reply.Term)
 					rf.mu2.Unlock()
 					return
 				} else if reply.Success {
@@ -951,14 +951,15 @@ func (rf *Raft) sendHeartbeats() {
 }
 
 // makeFollower makes the server a follower. this func DOES NOT acquire the lock.
-func makeFollower(rf *Raft, serverTerm int, leaderID int) {
+func makeFollower(rf *Raft, serverTerm int) {
 	rf.state = FOLLOWER
 	rf.currentTerm = serverTerm
-	if leaderID == -2 {
-		// don't change votedFor
-	} else {
-		rf.votedFor = leaderID
-	}
+	
+	// if leader, votedfor is meaningless
+	// if candidate, votedfor should be itself
+	// if follower, votedfor should be reset to -1
+	rf.votedFor = -1 
+	
 	rf.numberVotes = 0
 
 	rf.replicatedCount = 0
@@ -994,7 +995,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	DPrintf("Peers: %v", rf.peers)
 
 	// Your initialization code here (3A, 3B, 3C).
-	makeFollower(rf, 0, -1)
+	makeFollower(rf, 0)
 	rf.log = make([]LogEntry, 1) // log[0] is a dummy entry
 
 	rf.commitIndex = 0
