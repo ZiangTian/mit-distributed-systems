@@ -106,7 +106,7 @@ func (rf *Raft) GetState() (int, bool) {
 
 	rf.mu.Lock()
 	term = rf.currentTerm
-	isleader = rf.state == 2
+	isleader = rf.state == LEADER
 	rf.mu.Unlock()
 
 	return term, isleader
@@ -199,13 +199,9 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.VoteGranted = false
 		reply.CurrentTerm = rf.currentTerm
 		return
-	} else if args.Term > rf.currentTerm {
-		rf.currentTerm = args.Term
-		rf.state = 0 // follower
-
-		// since this is a new term, reset votedFor
-		rf.votedFor = -1
 	}
+
+	makeFollower(rf, args.Term) // enforce the follower state
 
 	rf.lastHeartbeat = time.Now()
 
@@ -344,7 +340,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 
 	// // i think there's a timeout for retries.
 	// return ok
-	timeout := 20 * time.Millisecond
+	timeout := 100 * time.Millisecond
 	done := make(chan bool, 1)
 
 	go func() {
@@ -354,7 +350,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 				done <- true
 				return
 			}
-			time.Sleep(5 * time.Millisecond)
+			time.Sleep(10 * time.Millisecond)
 		}
 	}()
 
@@ -378,7 +374,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	// }
 
 	// return ok
-	timeout := 20 * time.Millisecond
+	timeout := 100 * time.Millisecond
 	done := make(chan bool, 1)
 
 	go func() {
@@ -388,7 +384,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 				done <- true
 				return
 			}
-			time.Sleep(5 * time.Millisecond)
+			time.Sleep(10 * time.Millisecond)
 		}
 	}()
 
@@ -954,12 +950,12 @@ func (rf *Raft) sendHeartbeats() {
 func makeFollower(rf *Raft, serverTerm int) {
 	rf.state = FOLLOWER
 	rf.currentTerm = serverTerm
-	
+
 	// if leader, votedfor is meaningless
 	// if candidate, votedfor should be itself
 	// if follower, votedfor should be reset to -1
-	rf.votedFor = -1 
-	
+	rf.votedFor = -1
+
 	rf.numberVotes = 0
 
 	rf.replicatedCount = 0
