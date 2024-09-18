@@ -19,6 +19,7 @@ package raft
 
 import (
 	//	"bytes"
+	"fmt"
 	"math/rand"
 	"sort"
 	"sync"
@@ -232,13 +233,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// check if is heartbeat
 	if len(args.Entries) == 0 {
 		reply.Success = true
-		rf.state = 0 // follower
-		return
-	}
-
-	locatedEntry := rf.log[args.PrevLogIndex]
-	if locatedEntry.Term != args.PrevLogTerm {
-		reply.Success = false
 		return
 	}
 
@@ -255,6 +249,16 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		DPrintf("Server %d: log is coherent", rf.me)
 		reply.Success = true
 
+		// append the entries
+		rf.log = append(rf.log[:args.PrevLogIndex+1], args.Entries...)
+
+		// update the commitIndex
+		if args.LeaderCommit > rf.commitIndex {
+			rf.commitIndex = bigger(args.LeaderCommit, len(rf.log)-1)
+		}
+
+		// apply the message
+		rf.tryApplyMsg() // this blocks, so perhaps we should do it in a goroutine?
 	}
 
 }
@@ -402,8 +406,8 @@ func (rf *Raft) ticker() {
 		case CANDIDATE:
 			rf.startElection()
 		case LEADER:
-			rf.sendHeartbeats() // this does not block.
-			// rf.syncLog()
+			// rf.sendHeartbeats() // this does not block.
+			rf.syncLog()
 		}
 
 		// pause for a random amount of time between 50 and 350
@@ -482,7 +486,6 @@ func (rf *Raft) startElection() {
 			}
 		}(i)
 	}
-
 }
 
 func (rf *Raft) sendHeartbeats() {
@@ -551,6 +554,12 @@ func (rf *Raft) syncLog() {
 
 	DPrintf("Raft server %d syncing log for term %d", rf.me, rf.currentTerm)
 
+	// update nextIndex
+	// for i := 0; i < len(rf.peers); i++ {
+	// 	rf.nextIndex[i] = len(rf.log)
+	// }
+	// TODO: How do we "INITIALIZE" nextIndex?
+
 	rf.mu.Unlock()
 
 	for i := 0; i < len(rf.peers); i++ {
@@ -563,12 +572,16 @@ func (rf *Raft) syncLog() {
 
 				// prepare args to send to all the servers
 				// PrevLogIndex: the log index previous to the one to be sent
-
 				rf.mu.Lock()
 				entriesToSend := []LogEntry{}
 				if len(rf.log) > 1 {
 					entriesToSend = append(entriesToSend, rf.log[rf.nextIndex[server]:]...) // on init, next is 1, so we send log[1:]
 				}
+
+				fmt.Printf("entriesToSend: %v\n", entriesToSend)
+				fmt.Printf("rf.nextIndex[%d]: %v\n", server, rf.nextIndex[server])
+				fmt.Printf("rf.log: %v\n", rf.log)
+
 				args := AppendEntriesArgs{
 					Term:         rf.currentTerm,
 					LeaderId:     rf.me,
@@ -628,7 +641,6 @@ func (rf *Raft) syncLog() {
 				time.Sleep(50 * time.Millisecond)
 			}
 		}(i)
-
 	}
 }
 
