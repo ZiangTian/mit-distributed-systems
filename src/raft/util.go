@@ -114,7 +114,10 @@ func makeLeader(rf *Raft) {
 	rf.numberVotes = 0
 }
 
+// isMoreUpToDate returns true if the server's log is more up-to-date than the candidate's.
 func isMoreUpToDate(lastLogTerm, lastLogIndex, candidateLastLogTerm, candidateLastLogIndex int) bool {
+	// fmt.Printf("voter lastLogTerm: %v, voter lastLogIndex: %v\n", lastLogTerm, lastLogIndex)
+	// fmt.Printf("candidate LastLogTerm: %v, candidate LastLogIndex: %v\n", candidateLastLogTerm, candidateLastLogIndex)
 	if lastLogTerm > candidateLastLogTerm {
 		return true
 	} else if lastLogTerm == candidateLastLogTerm {

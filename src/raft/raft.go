@@ -191,10 +191,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 
 	// voting
-	// isMoreUpdated := !isMoreUpToDate(rf.log[len(rf.log)-1].Term, len(rf.log)-1, args.LastLogTerm, args.LastLogIndex)
-	oldshit := args.LastLogTerm >= rf.log[len(rf.log)-1].Term
-	// if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && !isMoreUpdated {
-	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && oldshit {
+	candidateIsMoreUpdated := !isMoreUpToDate(rf.log[len(rf.log)-1].Term, len(rf.log)-1, args.LastLogTerm, args.LastLogIndex)
+	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && candidateIsMoreUpdated {
 		reply.VoteGranted = true
 		rf.votedFor = args.CandidateId
 	} else {
