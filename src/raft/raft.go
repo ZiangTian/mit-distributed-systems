@@ -253,6 +253,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		Debug(dLog, "S%d: log is not coherent", rf.me)
 		// delete all entries starting from PrevLogIndex
 		reply.Success = false
+
+
 		rf.log = rf.log[:args.PrevLogIndex]
 
 		// do we append the entries?
@@ -268,7 +270,12 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		Debug(dLog, "S%d: log is coherent", rf.me)
 		reply.Success = true
 
+		// WARNING we cannot append the entry by truncating the log!!
+		// the RPC can be outdated, so truncation would mean losing entries
+
 		// append the entries
+		// if the follower has all the entries the leader sent, the log cannot be truncated.
+		// Any elements following the entries sent by the leader MUST be kept
 		rf.log = append(rf.log[:args.PrevLogIndex+1], args.Entries...)
 
 		// update the commitIndex
