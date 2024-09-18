@@ -9,7 +9,7 @@ import (
 )
 
 // Debugging
-const DFlag = false
+const DFlag = true
 
 type logTopic string
 
@@ -61,10 +61,8 @@ func init() {
 	log.SetFlags(log.Flags() &^ (log.Ldate | log.Ltime))
 }
 
-const debug = 1
-
 func Debug(topic logTopic, format string, a ...interface{}) {
-	if debug >= 1 {
+	if debugVerbosity >= 1 {
 		time := time.Since(debugStart).Microseconds()
 		time /= 100
 		prefix := fmt.Sprintf("%06d %v ", time, string(topic))
@@ -101,6 +99,8 @@ func makeFollower(rf *Raft, lastestTerm int) {
 	rf.lastHeartbeat = time.Now()
 }
 
+// makeLeader makes a server a leader.
+// it initializes the leader states, and invalidates the candidate states.
 func makeLeader(rf *Raft) {
 	rf.state = LEADER
 	rf.nextIndex = make([]int, len(rf.peers))
@@ -126,6 +126,7 @@ func isMoreUpToDate(lastLogTerm, lastLogIndex, candidateLastLogTerm, candidateLa
 	return false
 }
 
+// coherenceCheck checks if the log is coherent with the given prevLogIndex and prevLogTerm.
 func coherencyCheck(prevLogIndex int, prevLogTerm int, log []LogEntry) bool {
 	if prevLogIndex >= len(log)-1 {
 		return false
@@ -133,6 +134,7 @@ func coherencyCheck(prevLogIndex int, prevLogTerm int, log []LogEntry) bool {
 	return log[prevLogIndex].Term == prevLogTerm
 }
 
+// bigger returns the bigger of the two integers.
 func bigger(a, b int) int {
 	if a > b {
 		return a
