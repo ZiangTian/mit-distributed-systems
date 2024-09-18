@@ -2,17 +2,17 @@
 
 ## Lab 1
 
-![](*pics/Lab1Passed.png*)
+![](pics/Lab1Passed.png)
 
 ## Lab2
 
-[](*pics/Lab2Passed.png*)
+![](pics/Lab2Passed.png)
 
 ## Lab3
 
 ### Lab3-A
 
-![](*pics/Lab3APassed.png*)
+![](pics/Lab3APassed.png)
 
 > **Reference that can be of help**
 > 
