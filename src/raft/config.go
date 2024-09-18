@@ -495,10 +495,11 @@ func (cfg *config) nCommitted(index int) (int, interface{}) {
 
 		cfg.mu.Lock()
 		cmd1, ok := cfg.logs[i][index]
+
 		cfg.mu.Unlock()
 
 		if ok { // if exists
-			DPrintf("In ncopmmited, cmd1 is %v, cmd is %v", cmd1, cmd)
+			DPrintf("In ncommited, cmd1 is %v, cmd is %v", cmd1, cmd)
 			if count > 0 && cmd != cmd1 {
 				cfg.t.Fatalf("committed values do not match: index %v, %v, %v",
 					index, cmd, cmd1)

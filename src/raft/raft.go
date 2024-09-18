@@ -87,7 +87,9 @@ type Raft struct {
 	mu2 sync.Mutex
 
 	// 3B: applyCh
-	applyCh chan ApplyMsg
+	applyCh         chan ApplyMsg
+	cond            *sync.Cond
+	commitIDUpdated bool
 }
 
 // GetState return currentTerm and whether this server
@@ -186,12 +188,14 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.CurrentTerm = rf.currentTerm
 		return
 	} else if args.Term > rf.currentTerm {
-		makeFollower(rf, args.Term)
+		makeFollower(rf, args.Term, false)
+		//rf.votedFor = -1
 	}
 
 	// voting
 	candidateIsMoreUpdated := !isMoreUpToDate(rf.log[len(rf.log)-1].Term, len(rf.log)-1, args.LastLogTerm, args.LastLogIndex)
 	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && candidateIsMoreUpdated {
+		rf.lastHeartbeat = time.Now() // only reset timer now.
 		reply.VoteGranted = true
 		rf.votedFor = args.CandidateId
 	} else {
@@ -216,34 +220,51 @@ type AppendEntriesReply struct {
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
-	defer rf.mu.Unlock()
 
 	// invoked by the leader to replicate log entries
 	reply.Term = rf.currentTerm
 	if args.Term < rf.currentTerm {
 		reply.Success = false
 		reply.Term = rf.currentTerm
+
+		rf.mu.Unlock()
 		return
 	}
 
-	makeFollower(rf, args.Term)
+	makeFollower(rf, args.Term, true)
 
-	// check if is heartbeat
-	if len(args.Entries) == 0 {
-		reply.Success = true
-		return
-	}
+	// // even if it's heartbeat, we still need to
+	//if len(args.Entries) == 0 {
+	//	reply.Success = true
+	//
+	//	rf.commitIDUpdated = true
+	//	rf.mu.Unlock()
+	//
+	//	// apply the message
+	//	//rf.tryApplyMsg()
+	//
+	//	rf.cond.Broadcast()
+	//	return
+	//}
 
 	// check for conflicting entries
 	if !coherencyCheck(args.PrevLogIndex, args.PrevLogTerm, rf.log) {
+		Debug(dTest, "PrevLogIndex: %d, PrevLogTerm: %d, log: %v", args.PrevLogIndex, args.PrevLogTerm, rf.log)
 		Debug(dLog, "S%d: log is not coherent", rf.me)
 		// delete all entries starting from PrevLogIndex
 		reply.Success = false
 		rf.log = rf.log[:args.PrevLogIndex]
 
 		// do we append the entries?
+
+		rf.commitIDUpdated = true
+		rf.mu.Unlock()
+		//rf.tryApplyMsg()
+
+		rf.cond.Broadcast()
 		return
 	} else {
+		Debug(dTest, "PrevLogIndex: %d, PrevLogTerm: %d, log: %v", args.PrevLogIndex, args.PrevLogTerm, rf.log)
 		Debug(dLog, "S%d: log is coherent", rf.me)
 		reply.Success = true
 
@@ -252,11 +273,17 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 		// update the commitIndex
 		if args.LeaderCommit > rf.commitIndex {
-			rf.commitIndex = bigger(args.LeaderCommit, len(rf.log)-1)
+			rf.commitIndex = smaller(args.LeaderCommit, len(rf.log)-1)
 		}
 
+		rf.commitIDUpdated = true
+		rf.mu.Unlock()
+
+		rf.cond.Broadcast()
+
 		// apply the message
-		rf.tryApplyMsg() // this blocks, so perhaps we should do it in a goroutine?
+		//rf.tryApplyMsg() // this blocks, so perhaps we should do it in a goroutine?
+
 	}
 
 }
@@ -298,10 +325,10 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	return ok
 }
 
-// sendApplyMsg sends an ApplyMsg to the applyCh channel
+// sendApplyMsg sends an ApplyMsg to the applyCh channel.
+// this needs to acquire the lock first, so the lock should be released outside
 func (rf *Raft) tryApplyMsg() {
 	rf.mu.Lock()
-	defer rf.mu.Unlock()
 	// check if the commitIndex has been updated
 	for rf.commitIndex > rf.lastApplied { // rf.log[lastApplied] has been applied. last applied is inited to 0
 
@@ -313,8 +340,41 @@ func (rf *Raft) tryApplyMsg() {
 		}
 		Debug(dCommit, "S%d Applying command %v at index %d", rf.me, rf.log[rf.lastApplied].Command, rf.lastApplied)
 		//rf.mu2.Lock()
+		rf.mu.Unlock()
 		rf.applyCh <- msg
 		//rf.mu2.Unlock()
+		rf.mu.Lock()
+	}
+	rf.mu.Unlock()
+}
+
+func (rf *Raft) keepApplyMsg() {
+	for !rf.killed() {
+
+		rf.cond.L.Lock()
+		for !rf.commitIDUpdated {
+			rf.cond.Wait()
+		}
+
+		// check if the commitIndex has been updated
+		for rf.commitIndex > rf.lastApplied { // rf.log[lastApplied] has been applied. last applied is inited to 0
+
+			rf.lastApplied++
+			msg := ApplyMsg{
+				CommandValid: true,
+				Command:      rf.log[rf.lastApplied].Command,
+				CommandIndex: rf.lastApplied,
+			}
+			Debug(dCommit, "S%d Applying command %v at index %d", rf.me, rf.log[rf.lastApplied].Command, rf.lastApplied)
+			//rf.mu2.Lock()
+			rf.cond.L.Unlock()
+			rf.applyCh <- msg
+			//rf.mu2.Unlock()
+			rf.cond.L.Lock()
+		}
+		rf.commitIDUpdated = false
+		rf.cond.L.Unlock()
+
 	}
 }
 
@@ -343,7 +403,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	if isLeader {
 		// append the command to the log
 		DPrintf("Starting command %v for server %d", command, rf.me)
-		index = len(rf.log)
+		index = len(rf.log) // if it ever gets committed, it will be at the end of the log
 		rf.log = append(rf.log, LogEntry{Term: term, Command: command})
 
 		// go rf.syncLog()
@@ -379,7 +439,7 @@ func (rf *Raft) checkTimeout() {
 		return
 	}
 
-	electionTimeout := 550 + rand.Intn(150)
+	electionTimeout := 250 + rand.Intn(150)
 
 	lastHeartbeat := rf.lastHeartbeat
 
@@ -410,7 +470,8 @@ func (rf *Raft) ticker() {
 
 		// pause for a random amount of time between 50 and 350
 		// milliseconds.
-		ms := 50 + (rand.Int63() % 300)
+		//ms := 50 + (rand.Int63() % 300)
+		ms := 100
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 	}
 }
@@ -432,6 +493,7 @@ func (rf *Raft) startElection() {
 	// vote for self
 	rf.votedFor = rf.me
 	rf.numberVotes = 1
+	rf.lastHeartbeat = time.Now() // reset timer
 
 	args := RequestVoteArgs{
 		Term:         rf.currentTerm, // curTerm,
@@ -459,7 +521,7 @@ func (rf *Raft) startElection() {
 
 			if success {
 				if reply.CurrentTerm > rf.currentTerm {
-					makeFollower(rf, reply.CurrentTerm)
+					makeFollower(rf, reply.CurrentTerm, false)
 					//DPrintf("Raft server %d is no longer a candidate for term %d", rf.me, rf.currentTerm)
 					Debug(dDrop, "S%d No longer candidate", rf.me)
 					return
@@ -521,7 +583,7 @@ func (rf *Raft) sendHeartbeats() {
 			// rf.lastestTerm = rf.lastestTerm.lastestTerm && (reply.Term <= rf.currentTerm)
 			if success {
 				if reply.Term > rf.currentTerm {
-					makeFollower(rf, reply.Term)
+					makeFollower(rf, reply.Term, false)
 					Debug(dDrop, "S%d No longer leader", rf.me)
 					return
 				}
@@ -548,11 +610,6 @@ func (rf *Raft) syncLog() {
 	}
 
 	Debug(dLeader, "S%d Leader, syncing log", rf.me)
-
-	// update nextIndex
-	// for i := 0; i < len(rf.peers); i++ {
-	// 	rf.nextIndex[i] = len(rf.log)
-	// }
 	// TODO: How do we "INITIALIZE" nextIndex?
 
 	rf.mu.Unlock()
@@ -581,7 +638,7 @@ func (rf *Raft) syncLog() {
 
 				Debug(dLog, "S%d -> S%d, Sending entries: %v", rf.me, server, entriesToSend)
 				Debug(dTest, "S%d -> S%d, S%d log now %v, S%d nextIndex %d", rf.me, server, rf.me, rf.log, server, rf.nextIndex[server])
-				Debug(dLeader, " S%d -> S%d, Sending PLI: %d, PLT: %d", rf.me, server, entriesToSend, rf.log[rf.nextIndex[server]-1].Term)
+				Debug(dLeader, "S%d -> S%d, Sending PLI: %d, PLT: %d", rf.me, server, rf.nextIndex[server]-1, rf.log[rf.nextIndex[server]-1].Term)
 
 				args := AppendEntriesArgs{
 					Term:         rf.currentTerm,
@@ -600,27 +657,37 @@ func (rf *Raft) syncLog() {
 				// check if the leader term is still valid
 				rf.mu.Lock()
 				// rf.lastestTerm = rf.lastestTerm.lastestTerm && (reply.Term <= rf.currentTerm)
-
+				Debug(dError, "1")
 				if ok {
+					Debug(dError, "2")
 					if reply.Term > rf.currentTerm {
-						makeFollower(rf, reply.Term)
+						makeFollower(rf, reply.Term, false)
 						Debug(dDrop, "S%d No longer leader", rf.me)
 						rf.mu.Unlock()
 						return
 					}
 					if rf.currentTerm != args.Term || rf.state != LEADER {
+						Debug(dError, "3")
 						rf.mu.Unlock()
 						return
 					}
 
 					// if the entries sent are empty, it's a heartbeat, we don't need to check the reply
 					if len(args.Entries) == 0 {
+						Debug(dError, "4")
+
+						rf.commitIDUpdated = true
 						rf.mu.Unlock()
+
+						rf.cond.Broadcast()
+						//rf.tryApplyMsg()
 						return
 					}
 
 					if reply.Success {
 						// update nextIndex and matchIndex
+						Debug(dLeader, "S%d -> S%d, Success, updating nextIndex and matchIndex", rf.me, server)
+
 						rf.nextIndex[server] = args.PrevLogIndex + len(args.Entries) + 1
 						rf.matchIndex[server] = rf.nextIndex[server] - 1
 
@@ -630,21 +697,30 @@ func (rf *Raft) syncLog() {
 						sort.Ints(tempArr)
 						N := tempArr[len(rf.peers)/2]
 						if N > rf.commitIndex && rf.log[N].Term == rf.currentTerm {
+							Debug(dLeader, "S%d commitIndex updated to %d", rf.me, N)
 							rf.commitIndex = N
+
+							rf.commitIDUpdated = true
+							rf.mu.Unlock()
+
+							rf.cond.Broadcast()
+
+						} else {
+							rf.mu.Unlock()
 						}
 
 						// try to apply the message
-						rf.tryApplyMsg()
-
-						rf.mu.Unlock()
+						//rf.tryApplyMsg()
 						return
 					} else {
 						// decrement nextIndex and retry
+						Debug(dLeader, "S%d -> S%d, Failure, decrementing nextIndex", rf.me, server)
 						//rf.nextIndex[server]--
 						rf.nextIndex[server] = bigger(1, rf.nextIndex[server]-1)
 					}
 				} else {
 					// retry
+					Debug(dError, "5")
 				}
 				rf.mu.Unlock()
 				time.Sleep(50 * time.Millisecond)
@@ -674,17 +750,22 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	Debug(dInfo, "Raft server %d created", rf.me)
 
 	// Your initialization code here (3A, 3B, 3C).
-	makeFollower(rf, 0)          // currentTerm = 0
+	makeFollower(rf, 0, true)    // currentTerm = 0
 	rf.log = make([]LogEntry, 1) // log[0] is a dummy entry
 
 	rf.commitIndex = 0 // the index of the highest log entry known to be committed: 0
 	rf.lastApplied = 0 // the index of the highest log entry applied to the state machine: 0
+
+	// use a sync.cond variable to link the commitIndex with applyCh
+	rf.cond = sync.NewCond(&rf.mu)
+	rf.commitIDUpdated = false
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
+	go rf.keepApplyMsg()
 
 	return rf
 }

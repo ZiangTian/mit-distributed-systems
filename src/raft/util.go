@@ -85,7 +85,7 @@ const (
 // it does not matter what the state the server is in.
 // if the server is already a follower, it's just reinforced.
 // this function NOT acquire the lock.
-func makeFollower(rf *Raft, lastestTerm int) {
+func makeFollower(rf *Raft, lastestTerm int, resetTimer bool) {
 	rf.state = FOLLOWER
 	rf.currentTerm = lastestTerm
 
@@ -96,7 +96,9 @@ func makeFollower(rf *Raft, lastestTerm int) {
 	rf.matchIndex = make([]int, len(rf.peers))
 
 	// reset timer
-	rf.lastHeartbeat = time.Now()
+	if resetTimer {
+		rf.lastHeartbeat = time.Now()
+	}
 }
 
 // makeLeader makes a server a leader.
@@ -128,7 +130,7 @@ func isMoreUpToDate(lastLogTerm, lastLogIndex, candidateLastLogTerm, candidateLa
 
 // coherenceCheck checks if the log is coherent with the given prevLogIndex and prevLogTerm.
 func coherencyCheck(prevLogIndex int, prevLogTerm int, log []LogEntry) bool {
-	if prevLogIndex >= len(log)-1 {
+	if prevLogIndex > len(log)-1 {
 		return false
 	}
 	return log[prevLogIndex].Term == prevLogTerm
@@ -137,6 +139,13 @@ func coherencyCheck(prevLogIndex int, prevLogTerm int, log []LogEntry) bool {
 // bigger returns the bigger of the two integers.
 func bigger(a, b int) int {
 	if a > b {
+		return a
+	}
+	return b
+}
+
+func smaller(a, b int) int {
+	if a < b {
 		return a
 	}
 	return b
