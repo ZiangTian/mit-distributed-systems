@@ -238,19 +238,12 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// check for conflicting entries
 	if !coherencyCheck(args.PrevLogIndex, args.PrevLogTerm, rf.log) {
 		Debug(dTest, "PrevLogIndex: %d, PrevLogTerm: %d, log: %v", args.PrevLogIndex, args.PrevLogTerm, rf.log)
-		Debug(dLog, "S%d: log is not coherent", rf.me)
+		Debug(dLog, "S%d: log is not coherent, returning immediately", rf.me)
 		// delete all entries starting from PrevLogIndex
 		reply.Success = false
 
-		rf.log = rf.log[:args.PrevLogIndex]
-
-		// do we append the entries?
-
-		rf.commitIDUpdated = true
+		// rf.log = rf.log[:args.PrevLogIndex] // we can't do this!!
 		rf.mu.Unlock()
-		//rf.tryApplyMsg()
-
-		rf.cond.Broadcast()
 		return
 	} else {
 		Debug(dTest, "PrevLogIndex: %d, PrevLogTerm: %d, log: %v", args.PrevLogIndex, args.PrevLogTerm, rf.log)
@@ -264,23 +257,28 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		// if the follower has all the entries the leader sent, the log cannot be truncated.
 		// Any elements following the entries sent by the leader MUST be kept
 		curLog := append([]LogEntry{}, rf.log...)
-		// idLastNewEntry := len(curLog) - 1
+		idLastNewEntry := len(curLog)
+
 		if args.PrevLogIndex+len(args.Entries) < len(curLog) {
 			// check for conflicts
+			idLastNewEntry = args.PrevLogIndex + len(args.Entries)
 			for i := 0; i < len(args.Entries); i++ {
 				if args.Entries[i].Term != curLog[args.PrevLogIndex+1+i].Term {
+					Debug(dWarn, "S%d: Coherent but conflicting entries, deleting from %d", rf.me, args.PrevLogIndex+1+i)
 					rf.log = append(rf.log[:args.PrevLogIndex+1+i], args.Entries[i:]...)
-					// idLastNewEntry = args.PrevLogIndex + i
+					Debug(dWarn, "S%d: the new log now %v", rf.me, rf.log)
+					idLastNewEntry = len(rf.log) - 1
 					break
 				}
 			}
 		} else {
 			rf.log = append(rf.log[:args.PrevLogIndex+1], args.Entries...)
+			idLastNewEntry = len(rf.log) - 1
 		}
 
 		// update the commitIndex
 		if args.LeaderCommit > rf.commitIndex {
-			rf.commitIndex = smaller(args.LeaderCommit, len(rf.log)-1)
+			rf.commitIndex = smaller(args.LeaderCommit, idLastNewEntry)
 		}
 
 		rf.commitIDUpdated = true
@@ -673,7 +671,7 @@ func (rf *Raft) syncLog() {
 						rf.mu.Unlock()
 						return
 					}
-					if rf.currentTerm != args.Term || rf.state != LEADER {
+					if rf.currentTerm != args.Term || rf.state != LEADER { // avoid old RPCs reply
 						Debug(dError, "3")
 						rf.mu.Unlock()
 						return
@@ -696,7 +694,7 @@ func (rf *Raft) syncLog() {
 						Debug(dLeader, "S%d -> S%d, Success, updating nextIndex and matchIndex", rf.me, server)
 
 						rf.nextIndex[server] = args.PrevLogIndex + len(args.Entries) + 1
-						rf.matchIndex[server] = rf.nextIndex[server] - 1
+						rf.matchIndex[server] = args.PrevLogIndex + len(args.Entries)
 
 						// check if the leader can commit the entry
 						tempArr := make([]int, len(rf.peers))
