@@ -233,19 +233,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	makeFollower(rf, args.Term, true)
 
-	// // even if it's heartbeat, we still need to
-	//if len(args.Entries) == 0 {
-	//	reply.Success = true
-	//
-	//	rf.commitIDUpdated = true
-	//	rf.mu.Unlock()
-	//
-	//	// apply the message
-	//	//rf.tryApplyMsg()
-	//
-	//	rf.cond.Broadcast()
-	//	return
-	//}
+	// // even if it's heartbeat, we still need to check the term
 
 	// check for conflicting entries
 	if !coherencyCheck(args.PrevLogIndex, args.PrevLogTerm, rf.log) {
@@ -253,7 +241,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		Debug(dLog, "S%d: log is not coherent", rf.me)
 		// delete all entries starting from PrevLogIndex
 		reply.Success = false
-
 
 		rf.log = rf.log[:args.PrevLogIndex]
 
@@ -276,7 +263,20 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		// append the entries
 		// if the follower has all the entries the leader sent, the log cannot be truncated.
 		// Any elements following the entries sent by the leader MUST be kept
-		rf.log = append(rf.log[:args.PrevLogIndex+1], args.Entries...)
+		curLog := append([]LogEntry{}, rf.log...)
+		// idLastNewEntry := len(curLog) - 1
+		if args.PrevLogIndex+len(args.Entries) < len(curLog) {
+			// check for conflicts
+			for i := 0; i < len(args.Entries); i++ {
+				if args.Entries[i].Term != curLog[args.PrevLogIndex+1+i].Term {
+					rf.log = append(rf.log[:args.PrevLogIndex+1+i], args.Entries[i:]...)
+					// idLastNewEntry = args.PrevLogIndex + i
+					break
+				}
+			}
+		} else {
+			rf.log = append(rf.log[:args.PrevLogIndex+1], args.Entries...)
+		}
 
 		// update the commitIndex
 		if args.LeaderCommit > rf.commitIndex {
