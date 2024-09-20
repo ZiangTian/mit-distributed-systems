@@ -226,6 +226,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if args.Term < rf.currentTerm {
 		reply.Success = false
 		reply.Term = rf.currentTerm
+		Debug(dDrop, "S%d: AppendEntries RPC from S%d, outdated term, returning immediately", rf.me, args.LeaderId)
 
 		rf.mu.Unlock()
 		return
@@ -237,8 +238,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// check for conflicting entries
 	if !coherencyCheck(args.PrevLogIndex, args.PrevLogTerm, rf.log) {
-		Debug(dTest, "PrevLogIndex: %d, PrevLogTerm: %d, log: %v", args.PrevLogIndex, args.PrevLogTerm, rf.log)
-		Debug(dLog, "S%d: log is not coherent, returning immediately", rf.me)
+		Debug(dLog2, "S%d received PrevLogIndex: %d, PrevLogTerm: %d, log: %v", rf.me, args.PrevLogIndex, args.PrevLogTerm, rf.log)
+		Debug(dLog2, "S%d: log is not coherent, returning immediately", rf.me)
 		// delete all entries starting from PrevLogIndex
 		reply.Success = false
 
@@ -246,8 +247,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.mu.Unlock()
 		return
 	} else {
-		Debug(dTest, "PrevLogIndex: %d, PrevLogTerm: %d, log: %v", args.PrevLogIndex, args.PrevLogTerm, rf.log)
-		Debug(dLog, "S%d: log is coherent", rf.me)
+		Debug(dLog2, "S%d received PrevLogIndex: %d, PrevLogTerm: %d, log: %v", rf.me, args.PrevLogIndex, args.PrevLogTerm, rf.log)
+		Debug(dLog2, "S%d: log is coherent", rf.me)
 		reply.Success = true
 
 		// WARNING we cannot append the entry by truncating the log!!
@@ -266,7 +267,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				if args.Entries[i].Term != curLog[args.PrevLogIndex+1+i].Term {
 					Debug(dWarn, "S%d: Coherent but conflicting entries, deleting from %d", rf.me, args.PrevLogIndex+1+i)
 					rf.log = append(rf.log[:args.PrevLogIndex+1+i], args.Entries[i:]...)
-					Debug(dWarn, "S%d: the new log now %v", rf.me, rf.log)
+					Debug(dLog2, "S%d: the new log now %v", rf.me, rf.log)
 					idLastNewEntry = len(rf.log) - 1
 					break
 				}
@@ -279,6 +280,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		// update the commitIndex
 		if args.LeaderCommit > rf.commitIndex {
 			rf.commitIndex = smaller(args.LeaderCommit, idLastNewEntry)
+			Debug(dCommit, "S%d: commitIndex updated to %d", rf.me, rf.commitIndex)
 		}
 
 		rf.commitIDUpdated = true
@@ -370,7 +372,7 @@ func (rf *Raft) keepApplyMsg() {
 				Command:      rf.log[rf.lastApplied].Command,
 				CommandIndex: rf.lastApplied,
 			}
-			Debug(dCommit, "S%d Applying command %v at index %d", rf.me, rf.log[rf.lastApplied].Command, rf.lastApplied)
+			Debug(dClient, "S%d Applying command %v at index %d", rf.me, rf.log[rf.lastApplied].Command, rf.lastApplied)
 			//rf.mu2.Lock()
 			rf.cond.L.Unlock()
 			rf.applyCh <- msg
@@ -475,8 +477,8 @@ func (rf *Raft) ticker() {
 
 		// pause for a random amount of time between 50 and 350
 		// milliseconds.
-		//ms := 50 + (rand.Int63() % 300)
-		ms := 100
+		ms := 50 + (rand.Int63() % 100)
+		//ms := 100
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 	}
 }
@@ -642,7 +644,7 @@ func (rf *Raft) syncLog() {
 				}
 
 				Debug(dLog, "S%d -> S%d, Sending entries: %v", rf.me, server, entriesToSend)
-				Debug(dTest, "S%d -> S%d, S%d log now %v, S%d nextIndex %d", rf.me, server, rf.me, rf.log, server, rf.nextIndex[server])
+				Debug(dLog, "S%d -> S%d, S%d log now %v, S%d nextIndex %d", rf.me, server, rf.me, rf.log, server, rf.nextIndex[server])
 				Debug(dLeader, "S%d -> S%d, Sending PLI: %d, PLT: %d", rf.me, server, rf.nextIndex[server]-1, rf.log[rf.nextIndex[server]-1].Term)
 
 				args := AppendEntriesArgs{
@@ -662,9 +664,7 @@ func (rf *Raft) syncLog() {
 				// check if the leader term is still valid
 				rf.mu.Lock()
 				// rf.lastestTerm = rf.lastestTerm.lastestTerm && (reply.Term <= rf.currentTerm)
-				Debug(dError, "1")
 				if ok {
-					Debug(dError, "2")
 					if reply.Term > rf.currentTerm {
 						makeFollower(rf, reply.Term, false)
 						Debug(dDrop, "S%d No longer leader", rf.me)
@@ -672,15 +672,12 @@ func (rf *Raft) syncLog() {
 						return
 					}
 					if rf.currentTerm != args.Term || rf.state != LEADER { // avoid old RPCs reply
-						Debug(dError, "3")
 						rf.mu.Unlock()
 						return
 					}
 
 					// if the entries sent are empty, it's a heartbeat, we don't need to check the reply
 					if len(args.Entries) == 0 {
-						Debug(dError, "4")
-
 						rf.commitIDUpdated = true
 						rf.mu.Unlock()
 
@@ -702,7 +699,7 @@ func (rf *Raft) syncLog() {
 						sort.Ints(tempArr)
 						N := tempArr[len(rf.peers)/2]
 						if N > rf.commitIndex && rf.log[N].Term == rf.currentTerm {
-							Debug(dLeader, "S%d commitIndex updated to %d", rf.me, N)
+							Debug(dCommit, "S%d commitIndex updated to %d", rf.me, N)
 							rf.commitIndex = N
 
 							rf.commitIDUpdated = true
@@ -725,7 +722,7 @@ func (rf *Raft) syncLog() {
 					}
 				} else {
 					// retry
-					Debug(dError, "5")
+					Debug(dLeader, "retrying sending entries to S%d", server)
 				}
 				rf.mu.Unlock()
 				time.Sleep(50 * time.Millisecond)

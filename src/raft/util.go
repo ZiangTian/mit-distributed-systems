@@ -19,12 +19,12 @@ const (
 	dDrop    logTopic = "DROP"
 	dError   logTopic = "ERRO"
 	dInfo    logTopic = "INFO"
-	dLeader  logTopic = "LEAD"
-	dLog     logTopic = "LOG1"
+	dLeader  logTopic = "LEAD" // leader related operations, like syncing logs
+	dLog     logTopic = "LOG1" // log related operations, like log details
 	dLog2    logTopic = "LOG2"
 	dPersist logTopic = "PERS"
 	dSnap    logTopic = "SNAP"
-	dTerm    logTopic = "TERM"
+	dTerm    logTopic = "TERM" // term related operations, like term changes
 	dTest    logTopic = "TEST"
 	dTimer   logTopic = "TIMR"
 	dTrace   logTopic = "TRCE"
@@ -88,6 +88,7 @@ const (
 func makeFollower(rf *Raft, lastestTerm int, resetTimer bool) {
 	rf.state = FOLLOWER
 	rf.currentTerm = lastestTerm
+	Debug(dLeader, "S%d becomes follower with term %v\n", rf.me, rf.currentTerm)
 
 	// invalidate leader data
 	rf.votedFor = -1
@@ -105,6 +106,7 @@ func makeFollower(rf *Raft, lastestTerm int, resetTimer bool) {
 // it initializes the leader states, and invalidates the candidate states.
 func makeLeader(rf *Raft) {
 	rf.state = LEADER
+	Debug(dTerm, "Server %v becomes leader with term %v\n", rf.me, rf.currentTerm)
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
 	for i := range rf.peers {

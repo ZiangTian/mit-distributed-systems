@@ -1,0 +1,397 @@
+000002 INFO Raft server 0 created
+000002 LEAD S0 becomes follower with term 0
+000003 INFO Raft server 1 created
+000003 LEAD S1 becomes follower with term 0
+000003 INFO Raft server 2 created
+000003 LEAD S2 becomes follower with term 0
+Test (3B): test progressive failure of followers ...
+002864 TIMR S0 Follower, election timeout
+003555 TIMR S1 Follower, election timeout
+003888 TIMR S2 Follower, election timeout
+004012 VOTE S0 starting election
+004013 VOTE S0 -> S2, RequestVote with term 1, lastLogIndex 0, lastLogTerm 0
+004013 VOTE S0 -> S1, RequestVote with term 1, lastLogIndex 0, lastLogTerm 0
+004019 LEAD S2 becomes follower with term 1
+004021 TERM Server 0 becomes leader with term 1
+004019 LEAD S1 becomes follower with term 1
+004021 VOTE S0 is the leader for term 1
+Starting command 101 for server 0
+005468 LEAD S0 Leader, syncing log
+005469 LOG1 S0 -> S2, Sending entries: [{1 101}]
+005470 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101}], S2 nextIndex 1
+005470 LEAD S0 -> S2, Sending PLI: 0, PLT: 0
+005472 LEAD S2 becomes follower with term 1
+005472 LOG2 S2 received PrevLogIndex: 0, PrevLogTerm: 0, log: [{0 <nil>}]
+005472 LOG2 S2: log is coherent
+005472 LOG1 S0 -> S1, Sending entries: [{1 101}]
+005473 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101}], S1 nextIndex 1
+005473 LEAD S0 -> S1, Sending PLI: 0, PLT: 0
+005473 LEAD S0 -> S2, Success, updating nextIndex and matchIndex
+005475 LEAD S1 becomes follower with term 1
+005475 LOG2 S1 received PrevLogIndex: 0, PrevLogTerm: 0, log: [{0 <nil>}]
+005475 LOG2 S1: log is coherent
+005476 LEAD S0 -> S1, Success, updating nextIndex and matchIndex
+005476 CMIT S0 commitIndex updated to 1
+005476 CLNT S0 Applying command 101 at index 1
+In ncommited, cmd1 is 101, cmd is <nil>
+In ncommited, cmd1 is 101, cmd is <nil>
+In ncommited, cmd1 is 101, cmd is <nil>
+In ncommited, cmd1 is 101, cmd is <nil>
+006219 LEAD S0 Leader, syncing log
+006220 LOG1 S0 -> S2, Sending entries: []
+006220 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101}], S2 nextIndex 2
+006220 LEAD S0 -> S2, Sending PLI: 1, PLT: 1
+006222 LEAD S2 becomes follower with term 1
+006222 LOG2 S2 received PrevLogIndex: 1, PrevLogTerm: 1, log: [{0 <nil>} {1 101}]
+006222 LOG2 S2: log is coherent
+006222 CMIT S2: commitIndex updated to 1
+006223 LOG1 S0 -> S1, Sending entries: []
+006223 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101}], S1 nextIndex 2
+006223 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+006224 LEAD S1 becomes follower with term 1
+006224 LOG2 S1 received PrevLogIndex: 1, PrevLogTerm: 1, log: [{0 <nil>} {1 101}]
+006224 LOG2 S1: log is coherent
+006224 CMIT S1: commitIndex updated to 1
+006225 CLNT S2 Applying command 101 at index 1
+006225 CLNT S1 Applying command 101 at index 1
+In ncommited, cmd1 is 101, cmd is <nil>
+In ncommited, cmd1 is 101, cmd is 101
+In ncommited, cmd1 is 101, cmd is 101
+committed command 101
+Given Command 101
+committed servers 3
+expectedServers 3
+Command 1 passed the agreement test
+007046 LEAD S0 Leader, syncing log
+007047 LOG1 S0 -> S2, Sending entries: []
+007047 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101}], S2 nextIndex 2
+007047 LEAD S0 -> S2, Sending PLI: 1, PLT: 1
+007048 LOG1 S0 -> S1, Sending entries: []
+007048 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101}], S1 nextIndex 2
+007048 LEAD S2 becomes follower with term 1
+007048 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+007048 LOG2 S2 received PrevLogIndex: 1, PrevLogTerm: 1, log: [{0 <nil>} {1 101}]
+007049 LOG2 S2: log is coherent
+007050 LEAD S1 becomes follower with term 1
+007050 LOG2 S1 received PrevLogIndex: 1, PrevLogTerm: 1, log: [{0 <nil>} {1 101}]
+007050 LOG2 S1: log is coherent
+008373 LEAD S0 Leader, syncing log
+008374 LOG1 S0 -> S2, Sending entries: []
+008375 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101}], S2 nextIndex 2
+008375 LEAD S0 -> S2, Sending PLI: 1, PLT: 1
+008376 LEAD S2 becomes follower with term 1
+008376 LOG1 S0 -> S1, Sending entries: []
+008377 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101}], S1 nextIndex 2
+008377 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+008376 LOG2 S2 received PrevLogIndex: 1, PrevLogTerm: 1, log: [{0 <nil>} {1 101}]
+008378 LOG2 S2: log is coherent
+008378 LEAD S1 becomes follower with term 1
+008379 LOG2 S1 received PrevLogIndex: 1, PrevLogTerm: 1, log: [{0 <nil>} {1 101}]
+008379 LOG2 S1: log is coherent
+009588 LEAD S0 Leader, syncing log
+009590 LOG1 S0 -> S2, Sending entries: []
+009590 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101}], S2 nextIndex 2
+009590 LEAD S0 -> S2, Sending PLI: 1, PLT: 1
+009592 LOG1 S0 -> S1, Sending entries: []
+009592 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101}], S1 nextIndex 2
+009593 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+009594 LEAD S1 becomes follower with term 1
+009594 LOG2 S1 received PrevLogIndex: 1, PrevLogTerm: 1, log: [{0 <nil>} {1 101}]
+009594 LOG2 S1: log is coherent
+009592 LEAD S2 becomes follower with term 1
+009596 LOG2 S2 received PrevLogIndex: 1, PrevLogTerm: 1, log: [{0 <nil>} {1 101}]
+009596 LOG2 S2: log is coherent
+010651 LEAD S0 Leader, syncing log
+010652 LOG1 S0 -> S2, Sending entries: []
+010652 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101}], S2 nextIndex 2
+010652 LEAD S0 -> S2, Sending PLI: 1, PLT: 1
+010653 LOG1 S0 -> S1, Sending entries: []
+010653 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101}], S1 nextIndex 2
+010653 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+010654 LEAD S2 becomes follower with term 1
+010654 LOG2 S2 received PrevLogIndex: 1, PrevLogTerm: 1, log: [{0 <nil>} {1 101}]
+010654 LOG2 S2: log is coherent
+010655 LEAD S1 becomes follower with term 1
+010655 LOG2 S1 received PrevLogIndex: 1, PrevLogTerm: 1, log: [{0 <nil>} {1 101}]
+010655 LOG2 S1: log is coherent
+Starting command 102 for server 0
+011855 LEAD S0 Leader, syncing log
+011855 LOG1 S0 -> S2, Sending entries: [{1 102}]
+011856 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 2
+011856 LEAD S0 -> S2, Sending PLI: 1, PLT: 1
+011856 LOG1 S0 -> S1, Sending entries: [{1 102}]
+011857 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+011857 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+011857 LEAD S2 becomes follower with term 1
+011857 LOG2 S2 received PrevLogIndex: 1, PrevLogTerm: 1, log: [{0 <nil>} {1 101}]
+011857 LOG2 S2: log is coherent
+011859 LEAD S0 -> S2, Success, updating nextIndex and matchIndex
+012540 LEAD S0 Leader, syncing log
+012541 LOG1 S0 -> S2, Sending entries: []
+012541 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+012541 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+012542 LOG1 S0 -> S1, Sending entries: [{1 102}]
+012542 LEAD S2 becomes follower with term 1
+012543 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+012543 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+012543 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+012543 LOG2 S2: log is coherent
+013382 LEAD S0 Leader, syncing log
+013383 LOG1 S0 -> S2, Sending entries: []
+013383 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+013383 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+013384 LOG1 S0 -> S1, Sending entries: [{1 102}]
+013385 LEAD S2 becomes follower with term 1
+013385 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+013385 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+013385 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+013385 LOG2 S2: log is coherent
+013930 LEAD S0 Leader, syncing log
+013931 LOG1 S0 -> S2, Sending entries: []
+013931 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+013931 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+013932 LOG1 S0 -> S1, Sending entries: [{1 102}]
+013932 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+013933 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+013932 LEAD S2 becomes follower with term 1
+013933 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+013933 LOG2 S2: log is coherent
+014864 TIMR S1 Follower, election timeout
+015266 LEAD S0 Leader, syncing log
+015267 LOG1 S0 -> S2, Sending entries: []
+015267 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+015267 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+015268 LOG1 S0 -> S1, Sending entries: [{1 102}]
+015268 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+015268 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+015268 LEAD S2 becomes follower with term 1
+015269 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+015269 LOG2 S2: log is coherent
+015668 VOTE S1 starting election
+015669 VOTE S1 -> S2, RequestVote with term 2, lastLogIndex 1, lastLogTerm 1
+015670 VOTE S1 -> S0, RequestVote with term 2, lastLogIndex 1, lastLogTerm 1
+016415 LEAD S0 Leader, syncing log
+016416 LOG1 S0 -> S2, Sending entries: []
+016416 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+016416 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+016416 LOG1 S0 -> S1, Sending entries: [{1 102}]
+016417 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+016417 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+016418 LEAD S2 becomes follower with term 1
+016418 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+016418 LOG2 S2: log is coherent
+017111 VOTE S1 starting election
+017111 VOTE S1 -> S2, RequestVote with term 3, lastLogIndex 1, lastLogTerm 1
+017112 VOTE S1 -> S0, RequestVote with term 3, lastLogIndex 1, lastLogTerm 1
+017462 LEAD S0 Leader, syncing log
+017463 LOG1 S0 -> S2, Sending entries: []
+017463 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+017463 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+017464 LOG1 S0 -> S1, Sending entries: [{1 102}]
+017464 LEAD S2 becomes follower with term 1
+017464 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+017464 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+017464 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+017464 LOG2 S2: log is coherent
+017690 VOTE S1 starting election
+017691 VOTE S1 -> S2, RequestVote with term 4, lastLogIndex 1, lastLogTerm 1
+017691 VOTE S1 -> S0, RequestVote with term 4, lastLogIndex 1, lastLogTerm 1
+018313 LEAD S0 Leader, syncing log
+018314 LOG1 S0 -> S2, Sending entries: []
+018314 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+018314 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+018315 LEAD S2 becomes follower with term 1
+018315 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+018315 LOG2 S2: log is coherent
+018315 LOG1 S0 -> S1, Sending entries: [{1 102}]
+018316 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+018316 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+018606 VOTE S1 starting election
+018606 VOTE S1 -> S2, RequestVote with term 5, lastLogIndex 1, lastLogTerm 1
+018607 VOTE S1 -> S0, RequestVote with term 5, lastLogIndex 1, lastLogTerm 1
+019435 LEAD S0 Leader, syncing log
+019436 LOG1 S0 -> S2, Sending entries: []
+019436 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+019437 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+019437 LOG1 S0 -> S1, Sending entries: [{1 102}]
+019438 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+019438 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+019438 LEAD S2 becomes follower with term 1
+019438 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+019438 LOG2 S2: log is coherent
+019977 VOTE S1 starting election
+019978 VOTE S1 -> S2, RequestVote with term 6, lastLogIndex 1, lastLogTerm 1
+019979 VOTE S1 -> S0, RequestVote with term 6, lastLogIndex 1, lastLogTerm 1
+020427 LEAD S0 Leader, syncing log
+020428 LOG1 S0 -> S2, Sending entries: []
+020428 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+020429 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+020430 LOG1 S0 -> S1, Sending entries: [{1 102}]
+020431 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+020431 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+020431 LEAD S2 becomes follower with term 1
+020431 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+020431 LOG2 S2: log is coherent
+021039 LEAD S0 Leader, syncing log
+021040 LOG1 S0 -> S2, Sending entries: []
+021040 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+021040 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+021041 LOG1 S0 -> S1, Sending entries: [{1 102}]
+021041 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+021041 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+021042 LEAD S2 becomes follower with term 1
+021042 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+021042 LOG2 S2: log is coherent
+021098 VOTE S1 starting election
+021098 VOTE S1 -> S2, RequestVote with term 7, lastLogIndex 1, lastLogTerm 1
+021099 VOTE S1 -> S0, RequestVote with term 7, lastLogIndex 1, lastLogTerm 1
+021783 VOTE S1 starting election
+021784 VOTE S1 -> S2, RequestVote with term 8, lastLogIndex 1, lastLogTerm 1
+021784 VOTE S1 -> S0, RequestVote with term 8, lastLogIndex 1, lastLogTerm 1
+022396 LEAD S0 Leader, syncing log
+022397 LOG1 S0 -> S2, Sending entries: []
+022397 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+022397 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+022399 LEAD S2 becomes follower with term 1
+022399 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+022399 LOG2 S2: log is coherent
+022400 LOG1 S0 -> S1, Sending entries: [{1 102}]
+022400 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+022400 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+023105 VOTE S1 starting election
+023106 VOTE S1 -> S2, RequestVote with term 9, lastLogIndex 1, lastLogTerm 1
+023107 VOTE S1 -> S0, RequestVote with term 9, lastLogIndex 1, lastLogTerm 1
+023257 LEAD S0 Leader, syncing log
+023257 LOG1 S0 -> S2, Sending entries: []
+023257 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+023258 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+023259 LEAD S2 becomes follower with term 1
+023259 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+023259 LOG2 S2: log is coherent
+023258 LOG1 S0 -> S1, Sending entries: [{1 102}]
+023259 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+023259 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+024508 LEAD S0 Leader, syncing log
+024509 LOG1 S0 -> S2, Sending entries: []
+024510 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+024510 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+024510 VOTE S1 starting election
+024511 VOTE S1 -> S2, RequestVote with term 10, lastLogIndex 1, lastLogTerm 1
+024511 LOG1 S0 -> S1, Sending entries: [{1 102}]
+024511 VOTE S1 -> S0, RequestVote with term 10, lastLogIndex 1, lastLogTerm 1
+024511 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+024512 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+024512 LEAD S2 becomes follower with term 1
+024512 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+024512 LOG2 S2: log is coherent
+025270 LEAD S0 Leader, syncing log
+025270 LOG1 S0 -> S2, Sending entries: []
+025270 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+025270 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+025272 LEAD S2 becomes follower with term 1
+025272 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+025272 LOG2 S2: log is coherent
+025271 LOG1 S0 -> S1, Sending entries: [{1 102}]
+025272 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+025272 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+025768 VOTE S1 starting election
+025769 VOTE S1 -> S2, RequestVote with term 11, lastLogIndex 1, lastLogTerm 1
+025769 VOTE S1 -> S0, RequestVote with term 11, lastLogIndex 1, lastLogTerm 1
+026019 LEAD S0 Leader, syncing log
+026020 LOG1 S0 -> S2, Sending entries: []
+026020 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+026020 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+026020 LOG1 S0 -> S1, Sending entries: [{1 102}]
+026020 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+026021 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+026021 LEAD S2 becomes follower with term 1
+026021 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+026021 LOG2 S2: log is coherent
+026888 LEAD S0 Leader, syncing log
+026889 LOG1 S0 -> S2, Sending entries: []
+026890 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+026890 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+026890 LOG1 S0 -> S1, Sending entries: [{1 102}]
+026891 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+026891 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+026892 LEAD S2 becomes follower with term 1
+026892 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+026892 LOG2 S2: log is coherent
+027170 VOTE S1 starting election
+027171 VOTE S1 -> S2, RequestVote with term 12, lastLogIndex 1, lastLogTerm 1
+027171 VOTE S1 -> S0, RequestVote with term 12, lastLogIndex 1, lastLogTerm 1
+027726 LEAD S0 Leader, syncing log
+027727 LOG1 S0 -> S2, Sending entries: []
+027727 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+027727 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+027727 LOG1 S0 -> S1, Sending entries: [{1 102}]
+027728 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+027728 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+027728 LEAD S2 becomes follower with term 1
+027728 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+027728 LOG2 S2: log is coherent
+028285 VOTE S1 starting election
+028286 VOTE S1 -> S2, RequestVote with term 13, lastLogIndex 1, lastLogTerm 1
+028286 VOTE S1 -> S0, RequestVote with term 13, lastLogIndex 1, lastLogTerm 1
+028695 LEAD retrying sending entries to S1
+028874 LEAD S0 Leader, syncing log
+028874 LOG1 S0 -> S2, Sending entries: []
+028875 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+028875 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+028875 LOG1 S0 -> S1, Sending entries: [{1 102}]
+028876 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+028876 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+028876 LEAD S2 becomes follower with term 1
+028876 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+028876 LOG2 S2: log is coherent
+029207 LOG1 S0 -> S1, Sending entries: [{1 102}]
+029208 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+029208 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+029218 VOTE S1 starting election
+029219 VOTE S1 -> S2, RequestVote with term 14, lastLogIndex 1, lastLogTerm 1
+029220 VOTE S1 -> S0, RequestVote with term 14, lastLogIndex 1, lastLogTerm 1
+029342 LEAD retrying sending entries to S1
+029409 LEAD S0 Leader, syncing log
+029410 LOG1 S0 -> S2, Sending entries: []
+029410 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+029410 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+029411 LEAD S2 becomes follower with term 1
+029411 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+029411 LOG2 S2: log is coherent
+029412 LOG1 S0 -> S1, Sending entries: [{1 102}]
+029412 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+029412 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+029850 LOG1 S0 -> S1, Sending entries: [{1 102}]
+029851 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+029851 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+030150 VOTE S1 starting election
+030151 VOTE S1 -> S2, RequestVote with term 15, lastLogIndex 1, lastLogTerm 1
+030151 VOTE S1 -> S0, RequestVote with term 15, lastLogIndex 1, lastLogTerm 1
+030544 LEAD S0 Leader, syncing log
+030544 LOG1 S0 -> S2, Sending entries: []
+030544 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+030545 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+030546 LEAD S2 becomes follower with term 1
+030546 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+030546 LOG2 S2: log is coherent
+030546 LOG1 S0 -> S1, Sending entries: [{1 102}]
+030547 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+030547 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+031024 VOTE S1 starting election
+031025 VOTE S1 -> S2, RequestVote with term 16, lastLogIndex 1, lastLogTerm 1
+031025 VOTE S1 -> S0, RequestVote with term 16, lastLogIndex 1, lastLogTerm 1
+031533 LEAD S0 Leader, syncing log
+031533 LOG1 S0 -> S2, Sending entries: []
+031533 LOG1 S0 -> S2, S0 log now [{0 <nil>} {1 101} {1 102}], S2 nextIndex 3
+031534 LEAD S0 -> S2, Sending PLI: 2, PLT: 1
+031534 LOG1 S0 -> S1, Sending entries: [{1 102}]
+031535 LOG1 S0 -> S1, S0 log now [{0 <nil>} {1 101} {1 102}], S1 nextIndex 2
+031535 LEAD S0 -> S1, Sending PLI: 1, PLT: 1
+031535 LEAD S2 becomes follower with term 1
+031535 LOG2 S2 received PrevLogIndex: 2, PrevLogTerm: 1, log: [{0 <nil>} {1 101} {1 102}]
+031535 LOG2 S2: log is coherent
+--- FAIL: TestFollowerFailure3B (3.19s)
+    config.go:602: one(102) failed to reach agreement
+FAIL
+exit status 1
+FAIL	6.5840/raft	3.189s
