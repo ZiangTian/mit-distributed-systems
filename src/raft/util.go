@@ -9,7 +9,7 @@ import (
 )
 
 // Debugging
-const DFlag = true
+const DFlag = false
 
 type logTopic string
 

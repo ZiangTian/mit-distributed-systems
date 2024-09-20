@@ -194,6 +194,8 @@ func TestFollowerFailure3B(t *testing.T) {
 	// disconnect one follower from the network.
 	leader1 := cfg.checkOneLeader()
 	cfg.disconnect((leader1 + 1) % servers)
+	//fmt.Printf("S%d disconnected\n", (leader1+1)%servers)
+	Debug(dError, "S%d disconnected\n", (leader1+1)%servers)
 
 	// the leader and remaining follower should be
 	// able to agree despite the disconnected follower.
@@ -280,6 +282,8 @@ func TestFailAgree3B(t *testing.T) {
 	// disconnect one follower from the network.
 	leader := cfg.checkOneLeader()
 	cfg.disconnect((leader + 1) % servers)
+	//Debug(dError, "S%d disconnected\n", (leader+1)%servers)
+	fmt.Printf("S%d disconnected\n", (leader+1)%servers)
 
 	// the leader and remaining follower should be
 	// able to agree despite the disconnected follower.

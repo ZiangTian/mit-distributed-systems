@@ -440,9 +440,9 @@ func (rf *Raft) killed() bool {
 
 func (rf *Raft) checkTimeout() {
 	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	//defer rf.mu.Unlock()
 
-	if rf.state != FOLLOWER {
+	if rf.state == LEADER {
 		return
 	}
 
@@ -453,6 +453,11 @@ func (rf *Raft) checkTimeout() {
 	if time.Since(lastHeartbeat) > time.Duration(electionTimeout)*time.Millisecond {
 		Debug(dTimer, "S%d Follower, election timeout", rf.me)
 		rf.state = CANDIDATE
+
+		rf.mu.Unlock()
+		go rf.startElection()
+	} else {
+		rf.mu.Unlock()
 	}
 }
 
@@ -469,7 +474,8 @@ func (rf *Raft) ticker() {
 		case FOLLOWER:
 			rf.checkTimeout()
 		case CANDIDATE:
-			rf.startElection()
+			//	rf.startElection()	// relaunch the election even if it's already a candidate
+			rf.checkTimeout()
 		case LEADER:
 			//rf.sendHeartbeats() // this does not block.
 			rf.syncLog()
@@ -543,6 +549,7 @@ func (rf *Raft) startElection() {
 					// check if the votes are enough
 					if rf.numberVotes > len(rf.peers)/2 {
 						makeLeader(rf)
+						//rf.log = append(rf.log, []LogEntry{}...) // let's try this
 						//DPrintf("Raft server %d is the leader for term %d", rf.me, rf.currentTerm)
 						Debug(dVote, "S%d is the leader for term %d", rf.me, rf.currentTerm)
 					}
@@ -677,14 +684,14 @@ func (rf *Raft) syncLog() {
 					}
 
 					// if the entries sent are empty, it's a heartbeat, we don't need to check the reply
-					if len(args.Entries) == 0 {
-						rf.commitIDUpdated = true
-						rf.mu.Unlock()
-
-						rf.cond.Broadcast()
-						//rf.tryApplyMsg()
-						return
-					}
+					//if len(args.Entries) == 0 {
+					//	rf.commitIDUpdated = true
+					//	rf.mu.Unlock()
+					//
+					//	rf.cond.Broadcast()
+					//	//rf.tryApplyMsg()
+					//	return
+					//}
 
 					if reply.Success {
 						// update nextIndex and matchIndex
@@ -696,8 +703,10 @@ func (rf *Raft) syncLog() {
 						// check if the leader can commit the entry
 						tempArr := make([]int, len(rf.peers))
 						copy(tempArr, rf.matchIndex)
+						tempArr[rf.me] = len(rf.log) - 1 // UPDATE!!!!
 						sort.Ints(tempArr)
 						N := tempArr[len(rf.peers)/2]
+						Debug(dLeader, "The median commitID now is %d ", N)
 						if N > rf.commitIndex && rf.log[N].Term == rf.currentTerm {
 							Debug(dCommit, "S%d commitIndex updated to %d", rf.me, N)
 							rf.commitIndex = N
@@ -706,7 +715,6 @@ func (rf *Raft) syncLog() {
 							rf.mu.Unlock()
 
 							rf.cond.Broadcast()
-
 						} else {
 							rf.mu.Unlock()
 						}
