@@ -22,3 +22,12 @@
 > 4. [github discussion 1 (in chinese)](https://github.com/springfieldking/mit-6.824-golabs-2018/issues/1)
 > 5. [github discussion 2 (in chinese)](https://github.com/springfieldking/mit-6.824-golabs-2018/issues/3)
 
+### Lab3-B
+
+![](pics/Lab3BPassed.png)
+
+For 3B I restructured and rewrote the entire code 3 times and did numerous tests. Finally passed it after 12 days of on-and-off debugging and expansive researching. I resorted to the `dslogs` in [this post](https://blog.josejg.com/debugging-pretty/) and it's been so helpful. This is how the debug log looks like on my terminal:
+
+![](pics/debugLog.png)
+
+Other than this I also turned to Goland instead of VSCode for better debugging and clearer display. (VSCode still reigns regardless)
