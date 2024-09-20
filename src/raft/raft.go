@@ -18,6 +18,8 @@ package raft
 //
 
 import (
+	"6.5840/labgob"
+	"bytes"
 	"math/rand"
 	"sort"
 	"sync"
@@ -92,6 +94,12 @@ type Raft struct {
 	commitIDUpdated bool
 }
 
+type PersistedState struct {
+	CurrentTerm int
+	VotedFor    int
+	Log         []LogEntry
+}
+
 // GetState return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
@@ -115,6 +123,7 @@ func (rf *Raft) GetState() (int, bool) {
 // second argument to persister.Save().
 // after you've implemented snapshots, pass the current snapshot
 // (or nil if there's not yet a snapshot).
+// this func does not lock the mutex, so it should be locked before calling.
 func (rf *Raft) persist() {
 	// Your code here (3C).
 	// Example:
@@ -124,6 +133,21 @@ func (rf *Raft) persist() {
 	// e.Encode(rf.yyy)
 	// raftstate := w.Bytes()
 	// rf.persister.Save(raftstate, nil)
+	//labgob.LabEncoder{}
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	Ps := PersistedState{
+		CurrentTerm: rf.currentTerm,
+		VotedFor:    rf.votedFor,
+		Log:         rf.log,
+	}
+	err := e.Encode(Ps)
+	if err != nil {
+		panic(err)
+		return
+	}
+	rf.persister.Save(w.Bytes(), nil)
+
 }
 
 // restore previously persisted state.
@@ -144,6 +168,17 @@ func (rf *Raft) readPersist(data []byte) {
 	//   rf.xxx = xxx
 	//   rf.yyy = yyy
 	// }
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	Ps := PersistedState{}
+	if d.Decode(&Ps) != nil {
+		panic("Error decoding persisted state")
+		return
+	} else {
+		rf.currentTerm = Ps.CurrentTerm
+		rf.votedFor = Ps.VotedFor
+		rf.log = Ps.Log
+	}
 }
 
 // Snapshot the service says it has created a snapshot that has
@@ -654,16 +689,6 @@ func (rf *Raft) syncLog() {
 						rf.mu.Unlock()
 						return
 					}
-
-					// if the entries sent are empty, it's a heartbeat, we don't need to check the reply
-					//if len(args.Entries) == 0 {
-					//	rf.commitIDUpdated = true
-					//	rf.mu.Unlock()
-					//
-					//	rf.cond.Broadcast()
-					//	//rf.tryApplyMsg()
-					//	return
-					//}
 
 					if reply.Success {
 						// update nextIndex and matchIndex
