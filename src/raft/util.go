@@ -132,7 +132,7 @@ func isMoreUpToDate(lastLogTerm, lastLogIndex, candidateLastLogTerm, candidateLa
 
 // coherenceCheck checks if the log is coherent with the given prevLogIndex and prevLogTerm.
 // It only ensures that the previous element and all that precedes it are the same in the current log.
-// But the sent entries can be outdated and shorter than the actual remaining log entries.
+// But the entries sent can be outdated and shorter than the actual remaining log entries.
 func coherencyCheck(prevLogIndex int, prevLogTerm int, log []LogEntry) bool {
 	if prevLogIndex > len(log)-1 {
 		return false

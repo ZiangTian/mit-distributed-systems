@@ -214,8 +214,10 @@ type AppendEntriesArgs struct {
 }
 
 type AppendEntriesReply struct {
-	Term    int  // currentTerm, for leader to update itself
-	Success bool // true if follower contained entry matching prevLogIndex and prevLogTerm
+	Term          int  // currentTerm, for leader to update itself
+	Success       bool // true if follower contained entry matching prevLogIndex and prevLogTerm
+	ConflictIndex int  // index of the conflicting entry
+	ConflictTerm  int  // term of the conflicting entry
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
@@ -240,8 +242,28 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if !coherencyCheck(args.PrevLogIndex, args.PrevLogTerm, rf.log) {
 		Debug(dLog2, "S%d received PrevLogIndex: %d, PrevLogTerm: %d, log: %v", rf.me, args.PrevLogIndex, args.PrevLogTerm, rf.log)
 		Debug(dLog2, "S%d: log is not coherent, returning immediately", rf.me)
-		// delete all entries starting from PrevLogIndex
 		reply.Success = false
+
+		// find the conflicting entry
+		var conflictingIndex int
+		var conflictingTerm int
+		if args.PrevLogIndex >= len(rf.log) {
+			conflictingIndex = len(rf.log)
+			conflictingTerm = -1
+		} else {
+			for i := 0; i < len(rf.log); i++ {
+				if rf.log[i].Term == args.PrevLogTerm { // the first consistent entry
+					conflictingIndex = i + 1 // the first inconsistent entry
+					conflictingTerm = rf.log[i+1].Term
+					break
+				}
+			}
+		}
+
+		reply.ConflictTerm = conflictingTerm
+		reply.ConflictIndex = conflictingIndex
+
+		// TODO update the commitIndex??
 
 		// rf.log = rf.log[:args.PrevLogIndex] // we can't do this!!
 		rf.mu.Unlock()
@@ -559,56 +581,6 @@ func (rf *Raft) startElection() {
 	}
 }
 
-func (rf *Raft) sendHeartbeats() {
-
-	rf.mu.Lock()
-	if rf.state != LEADER {
-		rf.mu.Unlock()
-		return
-	}
-
-	Debug(dTimer, "S%d Leader, sending heartbeats", rf.me)
-
-	rf.mu.Unlock()
-
-	for i := 0; i < len(rf.peers); i++ {
-		if i == rf.me {
-			continue
-		}
-		go func(server int) {
-			// prepare args to send to all the servers
-			// PrevLogIndex: the log index previous to the one to be sent
-
-			args := AppendEntriesArgs{
-				Term:         rf.currentTerm,
-				LeaderId:     rf.me,
-				PrevLogIndex: len(rf.log) - 1,
-				PrevLogTerm:  rf.log[len(rf.log)-1].Term,
-				Entries:      nil,
-				LeaderCommit: rf.commitIndex,
-			}
-
-			reply := AppendEntriesReply{}
-			success := rf.sendAppendEntries(server, &args, &reply)
-
-			// check if the leader term is still valid
-			rf.mu.Lock()
-			defer rf.mu.Unlock()
-			// rf.lastestTerm = rf.lastestTerm.lastestTerm && (reply.Term <= rf.currentTerm)
-			if success {
-				if reply.Term > rf.currentTerm {
-					makeFollower(rf, reply.Term, false)
-					Debug(dDrop, "S%d No longer leader", rf.me)
-					return
-				}
-				if rf.currentTerm != args.Term || rf.state != LEADER {
-					return
-				}
-			}
-		}(i)
-	}
-}
-
 // syncLog syncs the log with the other servers;
 // it acts both as a heartbeat and a log replication.
 // This function takes place periodically in the leader in ticker.
@@ -725,8 +697,24 @@ func (rf *Raft) syncLog() {
 					} else {
 						// decrement nextIndex and retry
 						Debug(dLeader, "S%d -> S%d, Failure, decrementing nextIndex", rf.me, server)
-						//rf.nextIndex[server]--
-						rf.nextIndex[server] = bigger(1, rf.nextIndex[server]-1)
+						//rf.nextIndex[server] = bigger(1, rf.nextIndex[server]-1)
+
+						// if leader has XTerm,
+						leaderHasXterm := false
+						for i := len(rf.log) - 1; i >= 0; i-- {
+							if rf.log[i].Term == reply.ConflictTerm {
+								leaderHasXterm = true
+								rf.nextIndex[server] = i + 1
+								break
+							}
+						}
+
+						if !leaderHasXterm {
+							rf.nextIndex[server] = reply.ConflictIndex
+						}
+
+						rf.nextIndex[server] = bigger(1, rf.nextIndex[server])
+
 					}
 				} else {
 					// retry
