@@ -31,3 +31,7 @@ For 3B I restructured and rewrote the entire code 3 times and did numerous tests
 ![](pics/debugLog.png)
 
 Other than this I also turned to Goland instead of VSCode for better debugging and clearer display. (VSCode still reigns regardless)
+
+### Lab3-C
+
+![](pics/Lab3CPassed.png)
