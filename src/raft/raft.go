@@ -338,6 +338,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		if args.LeaderCommit > rf.commitIndex {
 			rf.commitIndex = smaller(args.LeaderCommit, idLastNewEntry)
 			Debug(dCommit, "S%d: commitIndex updated to %d", rf.me, rf.commitIndex)
+			rf.persist()
 		}
 
 		rf.commitIDUpdated = true
@@ -709,6 +710,8 @@ func (rf *Raft) syncLog() {
 							rf.commitIndex = N
 
 							rf.commitIDUpdated = true
+
+							rf.persist()
 							rf.mu.Unlock()
 
 							rf.cond.Broadcast()
