@@ -100,6 +100,7 @@ func makeFollower(rf *Raft, lastestTerm int, resetTimer bool) {
 	if resetTimer {
 		rf.lastHeartbeat = time.Now()
 	}
+	//rf.persist()
 }
 
 // makeLeader makes a server a leader.
@@ -116,6 +117,7 @@ func makeLeader(rf *Raft) {
 
 	rf.votedFor = -1
 	rf.numberVotes = 0
+	//rf.persist()
 }
 
 // isMoreUpToDate returns true if the server's log is more up-to-date than the candidate's.
@@ -138,6 +140,13 @@ func coherencyCheck(prevLogIndex int, prevLogTerm int, log []LogEntry) bool {
 		return false
 	}
 	return log[prevLogIndex].Term == prevLogTerm
+}
+
+func (rf *Raft) consistencyCheck(prevLogIndex int, prevLogTerm int) bool {
+	if prevLogIndex > rf.getLogLength()-1 {
+		return false
+	}
+	return rf.getLogEntry(prevLogIndex).Term == prevLogTerm
 }
 
 // bigger returns the bigger of the two integers.

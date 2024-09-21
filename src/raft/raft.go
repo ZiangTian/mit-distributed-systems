@@ -20,6 +20,7 @@ package raft
 import (
 	"6.5840/labgob"
 	"bytes"
+	"log"
 	"math/rand"
 	"sort"
 	"sync"
@@ -92,6 +93,11 @@ type Raft struct {
 	applyCh         chan ApplyMsg
 	cond            *sync.Cond
 	commitIDUpdated bool
+
+	// 3D: snapshot
+	lastIncludedIndex int
+	lastIncludedTerm  int
+	snapShotTemp      []byte // for sending snapshots, cleared after sending
 }
 
 type PersistedState struct {
@@ -114,6 +120,19 @@ func (rf *Raft) GetState() (int, bool) {
 	rf.mu.Unlock()
 
 	return term, isleader
+}
+
+func (rf *Raft) getLogLength() int {
+	return rf.lastIncludedIndex + len(rf.log)
+}
+
+func (rf *Raft) getLogEntry(index int) LogEntry {
+	if index < rf.lastIncludedIndex {
+		log.Fatalf("S%d: getLogEntry: index %d is less than lastIncludedIndex %d", rf.me, index, rf.lastIncludedIndex)
+	} else if index > rf.lastIncludedIndex+len(rf.log)-1 {
+		log.Fatalf("S%d: getLogEntry: index %d is greater than the last log index %d", rf.me, index, rf.lastIncludedIndex+len(rf.log)-1)
+	}
+	return rf.log[index-rf.lastIncludedIndex]
 }
 
 // save Raft's persistent state to stable storage,
@@ -187,6 +206,151 @@ func (rf *Raft) readPersist(data []byte) {
 // that index. Raft should now trim its log as much as possible.
 func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (3D).
+	// taking snapshots for the committed entries in log
+
+	if rf.killed() {
+		return
+	}
+
+	rf.mu.Lock()
+
+	if index <= rf.lastIncludedIndex {
+		Debug(dSnap, "S%d: Snapshot: index %d is less than or equal to lastIncludedIndex %d", rf.me, index, rf.lastIncludedIndex)
+		rf.mu.Unlock()
+		return
+	} else if index > rf.commitIndex {
+		Debug(dSnap, "S%d: Snapshot: index %d is greater than commitIndex %d", rf.me, index, rf.commitIndex)
+		rf.mu.Unlock()
+		return
+	}
+
+	// truncate the log
+	newLog := []LogEntry{}
+	for i := index + 1; i < rf.getLogLength(); i++ {
+		newLog = append(newLog, rf.getLogEntry(i))
+	}
+
+	// update lastIncludedIndex and lastIncludedTerm
+	rf.lastIncludedIndex = index
+	rf.lastIncludedTerm = rf.getLogEntry(index).Term
+
+	// update the log
+	rf.log = newLog
+
+	// persist the snapshot
+	rf.persister.Save(rf.persister.ReadRaftState(), snapshot)
+
+	// TODO do we update the commitIndex here??
+	if index > rf.commitIndex {
+		rf.commitIndex = index
+		rf.commitIDUpdated = true
+	}
+
+	// apply the snapshot
+	rf.snapShotTemp = snapshot // this automatically triggers the applyMsg
+	rf.mu.Unlock()
+
+	rf.cond.Broadcast()
+
+}
+
+type InstallSnapshotArgs struct {
+	Term              int    // leader's term
+	LeaderId          int    // so follower can redirect clients
+	LastIncludedIndex int    // the snapshot replaces all entries up through and including this index
+	LastIncludedTerm  int    // term of lastIncludedIndex
+	Data              []byte // raw bytes of the snapshot chunk
+	// Offset            int    // we don't do offset here
+	//Done bool // true if this is the last chunk
+}
+
+type InstallSnapshotReply struct {
+	Term int // currentTerm, for leader to update itself
+}
+
+// InstallSnapshot RPC handler.
+func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapshotReply) {
+	rf.mu.Lock()
+
+	reply.Term = rf.currentTerm
+	if args.Term < rf.currentTerm {
+		Debug(dSnap, "S%d: InstallSnapshot RPC from S%d, outdated term, returning immediately", rf.me, args.LeaderId)
+		rf.mu.Unlock()
+		return
+	}
+
+	makeFollower(rf, args.Term, true) // WARNING: we reset the timer here
+
+	if args.LastIncludedIndex < rf.lastIncludedIndex {
+		Debug(dSnap, "S%d: InstallSnapshot: index %d is less than to lastIncludedIndex %d", rf.me, args.LastIncludedIndex, rf.lastIncludedIndex)
+		rf.mu.Unlock()
+		return
+	}
+
+	// update the log, depending on whether the snapshot is a prefix of the log
+	// decode the snapshot
+	r := bytes.NewBuffer(args.Data)
+	d := labgob.NewDecoder(r)
+	le := []LogEntry{}
+	if d.Decode(&le) != nil {
+		panic("Error decoding snapshot")
+	}
+
+	isAPrefix := false
+
+	// check if the snapshot is a prefix of the log
+	if len(le) < rf.getLogLength() {
+		for i := 0; i < len(le); i++ {
+			if le[i].Term != rf.getLogEntry(i).Term {
+				break
+			}
+			if i == len(le)-1 {
+				isAPrefix = true
+				// keep the remaining log entries
+				if len(le) < rf.lastIncludedIndex {
+					// nothing to change
+				} else {
+					newLogLen := rf.getLogLength() - len(le)
+					rf.log = rf.log[len(rf.log)-newLogLen:]
+
+					rf.lastIncludedIndex = args.LastIncludedIndex
+					rf.lastIncludedTerm = args.LastIncludedTerm
+					rf.snapShotTemp = args.Data
+
+					if args.LastIncludedIndex > rf.commitIndex {
+						rf.commitIndex = args.LastIncludedIndex
+						rf.commitIDUpdated = true
+					}
+
+					rf.mu.Unlock()
+					rf.cond.Broadcast()
+
+					return
+				}
+			}
+		}
+	}
+	if !isAPrefix { // if not a prefix, discard the log
+		// discard the entire log, and replace it with the snapshot
+		// update lastIncludedIndex and lastIncludedTerm
+		rf.lastIncludedIndex = args.LastIncludedIndex
+		rf.lastIncludedTerm = args.LastIncludedTerm
+		rf.snapShotTemp = args.Data
+
+		// discard the log
+		rf.log = []LogEntry{}
+
+		// since this is forced by the leader, we need to proactively update the commitIndex
+		if args.LastIncludedIndex > rf.commitIndex {
+			rf.commitIndex = args.LastIncludedIndex
+			rf.commitIDUpdated = true
+		}
+
+		rf.mu.Unlock()
+		rf.cond.Broadcast()
+	} else {
+		rf.mu.Unlock()
+	}
 
 }
 
@@ -228,7 +392,14 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 
 	// voting
-	candidateIsMoreUpdated := !isMoreUpToDate(rf.log[len(rf.log)-1].Term, len(rf.log)-1, args.LastLogTerm, args.LastLogIndex)
+	//serverLastLogTerm := rf.log[len(rf.log)-1].Term
+	serverLastLogTerm := rf.getLogEntry(rf.getLogLength() - 1).Term
+	//serverLastLogIndex := len(rf.log) - 1
+	serverLastLogIndex := rf.getLogLength() - 1
+	candidateLastLogTerm := args.LastLogTerm
+	candidateLastLogIndex := args.LastLogIndex
+
+	candidateIsMoreUpdated := !isMoreUpToDate(serverLastLogTerm, serverLastLogIndex, candidateLastLogTerm, candidateLastLogIndex)
 	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && candidateIsMoreUpdated {
 		rf.lastHeartbeat = time.Now() // only reset timer now.
 		reply.VoteGranted = true
@@ -262,7 +433,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	reply.Term = rf.currentTerm
 	if args.Term < rf.currentTerm {
 		reply.Success = false
-		reply.Term = rf.currentTerm
 		Debug(dDrop, "S%d: AppendEntries RPC from S%d, outdated term, returning immediately", rf.me, args.LeaderId)
 
 		rf.mu.Unlock()
@@ -274,7 +444,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// // even if it's heartbeat, we still need to check the term
 
 	// check for conflicting entries
-	if !coherencyCheck(args.PrevLogIndex, args.PrevLogTerm, rf.log) {
+	//if !coherencyCheck(args.PrevLogIndex, args.PrevLogTerm, rf.log) {
+	if !rf.consistencyCheck(args.PrevLogIndex, args.PrevLogTerm) {
 		Debug(dLog2, "S%d received PrevLogIndex: %d, PrevLogTerm: %d, log: %v", rf.me, args.PrevLogIndex, args.PrevLogTerm, rf.log)
 		Debug(dLog2, "S%d: log is not coherent, returning immediately", rf.me)
 		reply.Success = false
@@ -417,13 +588,12 @@ func (rf *Raft) keepApplyMsg() {
 	for !rf.killed() {
 
 		rf.cond.L.Lock()
-		for !rf.commitIDUpdated {
+		for !rf.commitIDUpdated || rf.snapShotTemp == nil {
 			rf.cond.Wait()
 		}
 
 		// check if the commitIndex has been updated
 		for rf.commitIndex > rf.lastApplied { // rf.log[lastApplied] has been applied. last applied is inited to 0
-
 			rf.lastApplied++
 			msg := ApplyMsg{
 				CommandValid: true,
@@ -437,7 +607,25 @@ func (rf *Raft) keepApplyMsg() {
 			//rf.mu2.Unlock()
 			rf.cond.L.Lock()
 		}
-		rf.commitIDUpdated = false
+		if rf.snapShotTemp == nil { // if not caused by update, we don't need to reset the flag
+			rf.commitIDUpdated = false
+		}
+
+		// or when there is a new snapshot
+		if rf.snapShotTemp != nil {
+			msg := ApplyMsg{
+				SnapshotValid: true,
+				Snapshot:      rf.snapShotTemp,
+				SnapshotIndex: rf.lastIncludedIndex, // TODO not sure if this is correct
+				SnapshotTerm:  rf.lastIncludedTerm,
+			}
+			Debug(dSnap, "S%d Applying snapshot at index %d", rf.me, rf.lastIncludedIndex)
+			rf.snapShotTemp = nil
+			rf.cond.L.Unlock()
+			rf.applyCh <- msg
+			rf.cond.L.Lock()
+		}
+
 		rf.cond.L.Unlock()
 
 	}
@@ -771,6 +959,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 	rf.applyCh = applyCh
+	rf.snapShotTemp = nil
 
 	// print info
 	Debug(dInfo, "Raft server %d created", rf.me)
